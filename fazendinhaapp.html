@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AgroGestão v9</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;transition:background 0.3s}
+    ::-webkit-scrollbar{width:0;height:0}
+    input,select,button,textarea{font-family:inherit}
+    @keyframes su{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+    .su{animation:su 0.18s ease}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .fi{animation:fadeIn 0.15s ease}
+  </style>
+</head>
+<body><div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="text/babel">
+const{useState,useEffect,useRef,useMemo,useContext,createContext}=React;
+
+// ═══ THEME ═══════════════════════════════════════════════════════
+const TC=createContext({});
+const useT=()=>useContext(TC);
+const LIGHT={green:'#2D6A4F',gDark:'#1B4332',gLight:'#52B788',gPale:'#D8F3DC',orange:'#F4A261',yellow:'#E9C46A',red:'#E63946',blue:'#0077B6',bLight:'#00B4D8',bg:'#F0F4F1',card:'#FFFFFF',text:'#1A1A2E',gray:'#6B7280',border:'#E5E7EB',pink:'#F48FB1',pinkPale:'#FCE4EC',pinkDark:'#C2185B',bluePale:'#DBEAFE',blueMid:'#3B82F6',purple:'#7B61FF',purplePale:'#EDE9FE',shadow:'rgba(0,0,0,0.07)'};
+const DARK={green:'#238636',gDark:'#0d2818',gLight:'#3FB950',gPale:'#132d1e',orange:'#FFA94D',yellow:'#F9C74F',red:'#F85149',blue:'#388bfd',bLight:'#58a6ff',bg:'#0D1117',card:'#161B22',text:'#E6EDF3',gray:'#8B949E',border:'#30363D',pink:'#ff7eb6',pinkPale:'#2d0a1e',pinkDark:'#f778ba',bluePale:'#0c2d6b',blueMid:'#388bfd',purple:'#a5a0ff',purplePale:'#1a1456',shadow:'rgba(0,0,0,0.3)'};
+
+const PS={ocupado:{l:'Ocupado',c:'#F4A261',bg:'#FFF3E0'},vazio:{l:'Vazio',c:'#52B788',bg:'#D8F3DC'},descanso:{l:'Descanso',c:'#7B61FF',bg:'#EDE9FE'},degradado:{l:'Degradado',c:'#E63946',bg:'#FFE4E6'},recuperando:{l:'Recuperando',c:'#E9C46A',bg:'#FEFCE8'}};
+const PE={bom:{l:'Bom',c:'#52B788'},medio:{l:'Médio',c:'#E9C46A'},ruim:{l:'Ruim',c:'#F4A261'},muito_ruim:{l:'Muito Ruim',c:'#E63946'}};
+const TM=[{v:'ivermectina',l:'Ivermectina',icon:'💉',c:'#7B61FF'},{v:'fio_do_lombo',l:'Fio do Lombo',icon:'🩺',c:'#E63946'},{v:'antibiotico',l:'Antibiótico',icon:'💊',c:'#F4A261'},{v:'vacina',l:'Vacina',icon:'🩹',c:'#52B788'},{v:'vermifugo',l:'Vermífugo',icon:'🔬',c:'#0077B6'},{v:'outro',l:'Outro',icon:'✚',c:'#6B7280'}];
+const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// ═══ STORAGE ═════════════════════════════════════════════════════
+const PFX='ag9_';
+const dbGet=(k,fb)=>{try{const v=localStorage.getItem(PFX+k);return v?JSON.parse(v):fb}catch{return fb}};
+const dbSet=(k,v)=>{try{localStorage.setItem(PFX+k,JSON.stringify(v));localStorage.setItem(PFX+k+'_bak',JSON.stringify(v));}catch{}};
+const dbReset=()=>['pastos','animais','fin','movs','sal','manejos','cfg'].forEach(k=>{localStorage.removeItem(PFX+k);localStorage.removeItem(PFX+k+'_bak');});
+const dbExport=(data)=>{const b=new Blob([JSON.stringify({v:'9',ts:new Date().toISOString(),data},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`agrogestao-v9-${TODAY}.json`;a.click();};
+
+// ═══ UTILS ════════════════════════════════════════════════════════
+const TODAY=new Date().toISOString().slice(0,10);
+const sub=(d,n)=>{const dt=new Date(d+'T12:00');dt.setDate(dt.getDate()-n);return dt.toISOString().slice(0,10)};
+const fmtD=d=>{try{return new Date(d+'T12:00').toLocaleDateString('pt-BR')}catch{return d||'—'}};
+const fmtR=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function calcIdade(dn){
+  if(!dn)return null;
+  const ms=new Date()-new Date(dn+'T12:00');
+  if(ms<0)return{label:'Não nasceu',dias:0,cor:'#6B7280'};
+  const dias=Math.floor(ms/86400000),meses=Math.floor(dias/30.44),anos=Math.floor(dias/365.25);
+  let label,cor;
+  if(dias<1){label='Recém-nascido';cor='#F48FB1';}
+  else if(dias<7){label=`${dias} dia${dias>1?'s':''}`;cor='#F48FB1';}
+  else if(dias<30){label=`${dias} dias`;cor='#F4A261';}
+  else if(meses<12){const d=dias%30;label=`${meses}m${d?` ${d}d`:''}`;cor='#E9C46A';}
+  else{const m=meses%12;label=`${anos}a${m?` ${m}m`:''}`;cor='#52B788';}
+  return{label,dias,meses,anos,cor};
+}
+function calcSal(pid,n,regs,tx=225){
+  const items=[...regs.filter(s=>s.pastoId===pid)].sort((a,b)=>a.data.localeCompare(b.data));
+  const cd=(n*tx)/1000;
+  if(!items.length)return{kg:0,dias:0,cd,alerta:true};
+  let kg=0,ant=null;
+  for(const it of items){if(ant){const d=(new Date(it.data+'T12:00')-new Date(ant+'T12:00'))/86400000;kg=Math.max(0,kg-cd*d);}kg+=it.sacos*30;ant=it.data;}
+  if(ant){const d=(Date.now()-new Date(ant+'T12:00'))/86400000;kg=Math.max(0,kg-cd*d);}
+  return{kg,dias:cd>0?kg/cd:999,cd,alerta:kg<(cd*7)};
+}
+
+// ═══ DEMO DATA ════════════════════════════════════════════════════
+const D_PASTOS=[{id:1,nome:'Pasto Norte',tam:45,un:'ha',cap:80,estado:'bom',status:'ocupado',obs:'',taxaSal:225},{id:2,nome:'Pasto Sul',tam:30,un:'ha',cap:50,estado:'medio',status:'vazio',obs:'',taxaSal:225},{id:3,nome:'Pasto Leste',tam:55,un:'ha',cap:90,estado:'bom',status:'ocupado',obs:'Renovar cerca setor 3',taxaSal:225},{id:4,nome:'Pasto Oeste',tam:20,un:'ha',cap:30,estado:'ruim',status:'descanso',obs:'Em recuperação',taxaSal:225}];
+const D_ANIMAIS=[{id:1,ident:'BOI-001',cat:'Boi',raca:'Nelore',lote:'A',pastoId:1,status:'ativo',peso:480,obs:'',sexo:'M',dataNasc:'',maeId:null},{id:2,ident:'VACA-015',cat:'Vaca',raca:'Nelore',lote:'B',pastoId:3,status:'ativo',peso:380,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:3,ident:'BOI-022',cat:'Boi',raca:'Angus',lote:'A',pastoId:1,status:'ativo',peso:510,obs:'',sexo:'M',dataNasc:'',maeId:null},{id:4,ident:'NOVILHA-007',cat:'Novilha',raca:'Simental',lote:'C',pastoId:3,status:'ativo',peso:290,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:5,ident:'VACA-020',cat:'Vaca',raca:'Nelore',lote:'B',pastoId:1,status:'ativo',peso:395,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:6,ident:'BEZ-001',cat:'Bezerro',raca:'Nelore',lote:'B',pastoId:1,status:'ativo',peso:42,obs:'',sexo:'M',dataNasc:sub(TODAY,5),maeId:2},{id:7,ident:'BEZ-002',cat:'Bezerro',raca:'Nelore',lote:'B',pastoId:3,status:'ativo',peso:38,obs:'',sexo:'F',dataNasc:sub(TODAY,45),maeId:4},{id:8,ident:'BEZ-003',cat:'Bezerro',raca:'Angus',lote:'A',pastoId:1,status:'ativo',peso:95,obs:'',sexo:'M',dataNasc:sub(TODAY,120),maeId:5}];
+const D_FIN=[{id:1,tipo:'receita',valor:15000,cat:'Venda de gado',desc:'Venda 3 bois',data:sub(TODAY,19)},{id:2,tipo:'despesa',valor:2500,cat:'Alimentação',desc:'Ração e mineral',data:sub(TODAY,14)},{id:3,tipo:'despesa',valor:800,cat:'Manutenção',desc:'Conserto de cerca',data:sub(TODAY,32)},{id:4,tipo:'receita',valor:3200,cat:'Leite',desc:'Venda mensal',data:sub(TODAY,33)}];
+const D_MOVS=[{id:1,ident:'BOI-001',de:'Pasto Sul',para:'Pasto Norte',data:sub(TODAY,6),obs:'Pasto sul lotado'},{id:2,ident:'VACA-020',de:'Pasto Leste',para:'Pasto Norte',data:sub(TODAY,15),obs:''}];
+const D_SAL=[{id:1,pastoId:1,data:sub(TODAY,14),sacos:3,obs:'Reposição mensal'},{id:2,pastoId:3,data:sub(TODAY,19),sacos:4,obs:''}];
+const D_MANEJOS=[{id:1,tipoManejo:'ivermectina',nomeManejo:'Ivermectina 1%',animaisIds:[1,3,5],animaisIdents:['BOI-001','BOI-022','VACA-020'],dose:'5ml',data:sub(TODAY,10),obs:'Mensal'},{id:2,tipoManejo:'vacina',nomeManejo:'Vacina Aftosa',animaisIds:[1,2,3,4],animaisIdents:['BOI-001','VACA-015','BOI-022','NOVILHA-007'],dose:'2ml',data:sub(TODAY,45),obs:'Semestral'}];
+
+// ═══ BASE UI ═════════════════════════════════════════════════════
+function Card({ch,style,onClick}){const T=useT();return <div onClick={onClick} style={{background:T.card,borderRadius:16,padding:16,boxShadow:`0 2px 8px ${T.shadow}`,marginBottom:12,cursor:onClick?'pointer':'default',...style}}>{ch}</div>;}
+function Badge({l,c,bg}){return <span style={{background:bg||'#EEE',color:c||'#333',borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700,display:'inline-block'}}>{l}</span>;}
+function Btn({l,icon,onClick,color,style,dis}){const T=useT();return <button onClick={onClick} disabled={dis} style={{background:dis?T.border:(color||T.green),color:'#FFF',border:'none',borderRadius:13,padding:'13px 18px',fontSize:15,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:8,cursor:dis?'not-allowed':'pointer',width:'100%',...style}}>{icon&&<span style={{fontSize:19}}>{icon}</span>}{l}</button>;}
+function Inp({label,value,onChange,type='text',placeholder,style}){const T=useT();return <div style={{marginBottom:13}}>{label&&<label style={{display:'block',fontSize:11,fontWeight:700,color:T.gray,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.5px'}}>{label}</label>}<input value={value||''} onChange={e=>onChange(e.target.value)} type={type} placeholder={placeholder} style={{width:'100%',border:`1.5px solid ${T.border}`,borderRadius:10,padding:'11px 13px',fontSize:15,outline:'none',boxSizing:'border-box',background:T.card,color:T.text,...style}}/></div>;}
+function Sel({label,value,onChange,opts}){const T=useT();return <div style={{marginBottom:13}}>{label&&<label style={{display:'block',fontSize:11,fontWeight:700,color:T.gray,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.5px'}}>{label}</label>}<select value={value||''} onChange={e=>onChange(e.target.value)} style={{width:'100%',border:`1.5px solid ${T.border}`,borderRadius:10,padding:'11px 13px',fontSize:15,outline:'none',background:T.card,color:T.text,appearance:'none',backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,backgroundRepeat:'no-repeat',backgroundPosition:'right 13px center'}}>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></div>;}
+function Toggle({value,onChange,label,sub}){const T=useT();return <div onClick={()=>onChange(!value)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 0',cursor:'pointer',borderBottom:`1px solid ${T.border}`}}><div><div style={{fontWeight:600,color:T.text,fontSize:15}}>{label}</div>{sub&&<div style={{fontSize:12,color:T.gray,marginTop:2}}>{sub}</div>}</div><div style={{width:48,height:26,borderRadius:13,background:value?'#2D6A4F':'#E5E7EB',display:'flex',alignItems:'center',padding:3,transition:'background 0.2s',flexShrink:0}}><div style={{width:20,height:20,borderRadius:'50%',background:'#FFF',transform:value?'translateX(22px)':'none',transition:'transform 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.25)'}}/></div></div>;}
+
+function Modal({open,onClose,title,children}){
+  const T=useT();
+  if(!open)return null;
+  return <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:500,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} className="su" style={{background:T.card,borderRadius:'22px 22px 0 0',padding:22,width:'100%',maxWidth:500,maxHeight:'90vh',overflowY:'auto'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+        <span style={{fontSize:17,fontWeight:800,color:T.text}}>{title}</span>
+        <button onClick={onClose} style={{background:T.bg,border:'none',borderRadius:50,width:30,height:30,fontSize:15,cursor:'pointer',color:T.text,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+function DetailPage({onBack,title,color,icon,children}){
+  const T=useT();
+  return <div className="fi" style={{position:'fixed',inset:0,background:T.bg,zIndex:400,overflowY:'auto',paddingBottom:40}}>
+    <div style={{background:color||`linear-gradient(135deg,${T.gDark},${T.green})`,padding:'16px 18px 28px'}}>
+      <button onClick={onBack} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'#FFF',borderRadius:10,padding:'8px 14px',fontWeight:700,cursor:'pointer',fontSize:15,marginBottom:12}}>‹ Voltar</button>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        {icon&&<span style={{fontSize:28}}>{icon}</span>}
+        <div style={{color:'#FFF',fontSize:20,fontWeight:800,lineHeight:1.2}}>{title}</div>
+      </div>
+    </div>
+    <div style={{padding:'16px 16px 0'}}>{children}</div>
+  </div>;
+}
+
+function Section({title,children,empty}){
+  const T=useT();
+  return <div style={{marginBottom:18}}>
+    <div style={{fontSize:12,fontWeight:800,color:T.gray,textTransform:'uppercase',letterSpacing:'0.7px',marginBottom:8}}>{title}</div>
+    {empty?<div style={{background:T.card,borderRadius:12,padding:'14px 16px',fontSize:13,color:T.gray,textAlign:'center'}}>{empty}</div>:children}
+  </div>;
+}
+
+function InfoRow({label,value,color}){
+  const T=useT();
+  return <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:`1px solid ${T.border}`}}>
+    <span style={{fontSize:12,color:T.gray,fontWeight:600}}>{label}</span>
+    <span style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||'—'}</span>
+  </div>;
+}
+
+function DeleteBtn({label,onConfirm}){
+  const T=useT(),[confirm,setConfirm]=useState(false);
+  if(confirm)return <div style={{background:'#FFE4E6',borderRadius:13,padding:14,marginTop:8}}>
+    <div style={{fontWeight:700,color:T.red,marginBottom:8}}>⚠️ Excluir {label}?</div>
+    <div style={{fontSize:13,color:T.text,marginBottom:12}}>Esta ação não pode ser desfeita.</div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+      <button onClick={()=>setConfirm(false)} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:'11px',fontWeight:700,cursor:'pointer',color:T.gray,fontSize:14}}>Cancelar</button>
+      <button onClick={onConfirm} style={{background:T.red,border:'none',borderRadius:10,padding:'11px',fontWeight:700,cursor:'pointer',color:'#FFF',fontSize:14}}>🗑️ Excluir</button>
+    </div>
+  </div>;
+  return <Btn l={`🗑️ Excluir ${label}`} color={T.red} onClick={()=>setConfirm(true)} style={{marginTop:10}}/>;
+}
+
+function PgH({sub,title,extra}){const T=useT();return <div style={{background:`linear-gradient(135deg,${T.gDark},${T.green})`,padding:'20px 20px 28px'}}>{sub&&<div style={{color:'rgba(255,255,255,0.6)',fontSize:11,textTransform:'uppercase',letterSpacing:'0.8px'}}>{sub}</div>}<div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginTop:4}}><div style={{color:'#FFF',fontSize:21,fontWeight:800}}>{title}</div>{extra}</div></div>;}
+
+// ═══ MAPA SATÉLITE ════════════════════════════════════════════════
+function MapaMedicao({onAplicar,onFechar}){
+  const divRef=useRef(null),mapR=useRef(null),ptsR=useRef([]),mksR=useRef([]),polyR=useRef(null);
+  const [area,setArea]=useState(0),[nPts,setNPts]=useState(0);
+  const calcAreaHa=pts=>{if(pts.length<3)return 0;const R=6371000,n=pts.length;let a=0;for(let i=0;i<n;i++){const j=(i+1)%n;a+=(pts[j].lng-pts[i].lng)*Math.PI/180*(2+Math.sin(pts[i].lat*Math.PI/180)+Math.sin(pts[j].lat*Math.PI/180));}return Math.abs(a*R*R/2)/10000;};
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      if(!divRef.current||mapR.current)return;
+      const map=L.map(divRef.current,{center:[-21.9569,-44.8881],zoom:16});
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19}).addTo(map);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,opacity:0.75}).addTo(map);
+      const mkIcon=n=>L.divIcon({html:`<div style="background:#F4A261;color:#FFF;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;border:3px solid #FFF;box-shadow:0 2px 8px rgba(0,0,0,0.7);font-family:sans-serif">${n}</div>`,className:'',iconSize:[28,28],iconAnchor:[14,14]});
+      map.on('click',e=>{const pt={lat:e.latlng.lat,lng:e.latlng.lng};ptsR.current=[...ptsR.current,pt];const n=ptsR.current.length;const mk=L.marker([pt.lat,pt.lng],{icon:mkIcon(n)}).addTo(map);mksR.current.push(mk);upd(map);});
+      mapR.current=map;map.invalidateSize();
+    },150);
+    return()=>{clearTimeout(t);if(mapR.current){mapR.current.remove();mapR.current=null;}};
+  },[]);
+  const upd=map=>{const pts=ptsR.current;if(polyR.current)map.removeLayer(polyR.current);if(pts.length>=3)polyR.current=L.polygon(pts.map(p=>[p.lat,p.lng]),{color:'#52B788',fillColor:'#52B788',fillOpacity:0.2,weight:2}).addTo(map);else if(pts.length>=2)polyR.current=L.polyline(pts.map(p=>[p.lat,p.lng]),{color:'#52B788',weight:2,dashArray:'6,4'}).addTo(map);setArea(calcAreaHa(pts));setNPts(pts.length);};
+  const desfazer=()=>{const map=mapR.current;if(!map||!mksR.current.length)return;map.removeLayer(mksR.current.pop());ptsR.current=ptsR.current.slice(0,-1);upd(map);};
+  const limpar=()=>{const map=mapR.current;if(!map)return;mksR.current.forEach(m=>map.removeLayer(m));mksR.current=[];if(polyR.current){map.removeLayer(polyR.current);polyR.current=null;}ptsR.current=[];setArea(0);setNPts(0);};
+  return <div style={{position:'fixed',inset:0,zIndex:2000,display:'flex',flexDirection:'column'}}>
+    <div style={{background:'#1B4332',color:'#FFF',padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}><div><div style={{fontWeight:800,fontSize:16}}>🛰️ Medição por Satélite</div><div style={{fontSize:12,opacity:0.7}}>Toque no mapa para marcar vértices</div></div><button onClick={onFechar} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'#FFF',borderRadius:8,padding:'6px 14px',fontWeight:700,cursor:'pointer'}}>✕</button></div>
+    <div ref={divRef} style={{flex:1}}/>
+    <div style={{background:'#FFF',padding:14,flexShrink:0}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}><div style={{background:'#D8F3DC',borderRadius:12,padding:'10px 14px',textAlign:'center'}}><div style={{fontSize:10,color:'#6B7280',fontWeight:700,textTransform:'uppercase'}}>Área</div><div style={{fontSize:26,fontWeight:800,color:'#1B4332',lineHeight:1.2}}>{area.toFixed(2)}<span style={{fontSize:13}}> ha</span></div></div><div style={{background:'#F0F4F1',borderRadius:12,padding:'10px 14px',textAlign:'center'}}><div style={{fontSize:10,color:'#6B7280',fontWeight:700,textTransform:'uppercase'}}>Pontos</div><div style={{fontSize:26,fontWeight:800,lineHeight:1.2}}>{nPts}</div><div style={{fontSize:10,color:'#6B7280'}}>{nPts<3?'mín. 3':'✓'}</div></div></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}><button onClick={desfazer} style={{background:'#F0F4F1',border:'1.5px solid #E5E7EB',borderRadius:10,padding:'11px 0',fontSize:13,fontWeight:600,cursor:'pointer',color:'#6B7280'}}>↩️ Desfazer</button><button onClick={limpar} style={{background:'#FFF3E0',border:'1.5px solid #F4A261',borderRadius:10,padding:'11px 0',fontSize:13,fontWeight:600,cursor:'pointer',color:'#F4A261'}}>🗑️ Limpar</button></div>
+      <button onClick={()=>onAplicar(area)} disabled={nPts<3} style={{background:nPts<3?'#CCC':'#2D6A4F',color:'#FFF',border:'none',borderRadius:12,padding:'13px',fontSize:15,fontWeight:700,width:'100%',cursor:nPts<3?'not-allowed':'pointer'}}>✅ Aplicar {area>0?`— ${area.toFixed(2)} ha`:''}</button>
+    </div>
+  </div>;
+}
+
+// ═══ CLIMA ════════════════════════════════════════════════════════
+const WMO={0:'☀️',1:'🌤️',2:'⛅',3:'🌥️',51:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'⛈️',80:'🌦️',82:'⛈️',95:'⛈️'};
+function ClimaWidget(){
+  const T=useT(),[d,setD]=useState(null),[load,setLoad]=useState(true),[err,setErr]=useState(false);
+  useEffect(()=>{fetch('https://api.open-meteo.com/v1/forecast?latitude=-21.9569&longitude=-44.8881&daily=precipitation_sum,temperature_2m_max,weathercode&current_weather=true&timezone=America%2FSao_Paulo&forecast_days=7').then(r=>{if(!r.ok)throw 0;return r.json()}).then(v=>{setD(v);setLoad(false)}).catch(()=>{setErr(true);setLoad(false)});},[]);
+  const base={background:`linear-gradient(135deg,${T.blue},${T.bLight})`,color:'#FFF'};
+  if(load)return<Card ch={<div style={{textAlign:'center',padding:12,fontSize:13}}>⏳ Carregando clima...</div>} style={base}/>;
+  if(err)return<Card ch={<div style={{fontSize:12}}>⚠️ Clima offline</div>} style={{background:T.gray,color:'#FFF'}}/>;
+  const cw=d.current_weather,dl=d.daily,ct=dl.precipitation_sum.reduce((s,v)=>s+(v||0),0);
+  return <Card ch={<>
+    <div style={{fontWeight:800,fontSize:13,marginBottom:10,opacity:0.9}}>🌦️ Baependi — MG</div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontSize:44,fontWeight:800,lineHeight:1}}>{Math.round(cw.temperature)}°C</div><div style={{fontSize:12,opacity:0.8,marginTop:3}}>💨 {Math.round(cw.windspeed)} km/h</div></div><div style={{textAlign:'right'}}><div style={{fontSize:40}}>{WMO[cw.weathercode]||'🌡️'}</div><div style={{fontSize:11,opacity:0.75}}>Chuva 7 dias</div><div style={{fontWeight:700,fontSize:17}}>{ct.toFixed(0)} mm</div></div></div>
+    <div style={{display:'flex',gap:5,overflowX:'auto',paddingBottom:2}}>{dl.time.map((t,i)=><div key={t} style={{flex:'0 0 50px',background:'rgba(255,255,255,0.2)',borderRadius:10,padding:'6px 3px',textAlign:'center'}}><div style={{fontSize:10,opacity:0.85}}>{i===0?'Hoje':['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(t+'T12:00').getDay()]}</div><div style={{fontSize:16,margin:'2px 0'}}>{WMO[dl.weathercode[i]]||'🌡️'}</div><div style={{fontSize:11,fontWeight:700}}>{Math.round(dl.temperature_2m_max[i])}°</div><div style={{fontSize:10,opacity:0.8}}>{(dl.precipitation_sum[i]||0)>0?`${(dl.precipitation_sum[i]).toFixed(0)}mm`:'—'}</div></div>)}</div>
+  </>} style={base}/>;
+}
+
+// ═══ QUICK MODALS ═════════════════════════════════════════════════
+function GlobalModals({action,onClose,pastos,animais,setAnimais,setSal,setMovs}){
+  const T=useT();
+  const oc=pastos.filter(p=>p.status==='ocupado'),ativos=animais.filter(a=>a.status==='ativo'),vacas=ativos.filter(a=>a.cat==='Vaca'||a.cat==='Novilha');
+  const nomePasto=id=>pastos.find(p=>p.id===id)?.nome||'Sem pasto';
+  const [fS,setFS]=useState({pastoId:String(oc[0]?.id||''),sacos:'',data:TODAY,obs:''});
+  const [fN,setFN]=useState({ident:'',sexo:'M',dataNasc:TODAY,raca:'',peso:'',maeId:'',pastoId:String(oc[0]?.id||''),lote:'B',obs:''});
+  const [pBusca,setPBusca]=useState(''),[pAnimal,setPAnimal]=useState(''),[pDest,setPDest]=useState(''),[pObs,setPObs]=useState('');
+  const filtr=pBusca?ativos.filter(a=>a.ident.toLowerCase().includes(pBusca.toLowerCase())):ativos;
+  const saveSal=()=>{if(!fS.pastoId||!fS.sacos)return;setSal(s=>[...s,{...fS,id:Date.now(),pastoId:+fS.pastoId,sacos:+fS.sacos}]);onClose();};
+  const saveNasc=()=>{if(!fN.ident.trim())return;setAnimais(a=>[...a,{...fN,id:Date.now(),cat:'Bezerro',status:'ativo',pastoId:fN.pastoId?+fN.pastoId:null,peso:+fN.peso||0,maeId:fN.maeId?+fN.maeId:null}]);onClose();};
+  const savePasto=()=>{if(!pAnimal||!pDest)return;const a=animais.find(x=>x.id===+pAnimal);setMovs(m=>[{id:Date.now(),ident:a.ident,de:nomePasto(a.pastoId),para:nomePasto(+pDest),data:TODAY,obs:pObs},...m]);setAnimais(a2=>a2.map(x=>x.id===+pAnimal?{...x,pastoId:+pDest}:x));onClose();};
+
+  if(action==='sal')return<Modal open title="🧂 Registrar Sal Mineral" onClose={onClose}>
+    <Sel label="Pasto" value={fS.pastoId} onChange={v=>setFS(f=>({...f,pastoId:v}))} opts={[{v:'',l:'Selecionar...'},...oc.map(p=>({v:String(p.id),l:p.nome}))]}/>
+    <Inp label="Sacos (30 kg/saco)" value={fS.sacos} onChange={v=>setFS(f=>({...f,sacos:v}))} type="number" placeholder="3"/>
+    <Inp label="Data" value={fS.data} onChange={v=>setFS(f=>({...f,data:v}))} type="date"/>
+    <Inp label="Observações" value={fS.obs} onChange={v=>setFS(f=>({...f,obs:v}))} placeholder="Opcional..."/>
+    <Btn l="💾 Salvar" onClick={saveSal} dis={!fS.pastoId||!fS.sacos}/>
+  </Modal>;
+
+  if(action==='nascimento')return<Modal open title="🐮 Registrar Nascimento" onClose={onClose}>
+    <div style={{background:T.pinkPale,borderRadius:12,padding:12,marginBottom:12}}>
+      <label style={{display:'block',fontSize:11,fontWeight:700,color:T.pinkDark,marginBottom:8,textTransform:'uppercase'}}>Sexo</label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>{[['M','♂ Macho',T.blueMid,T.bluePale],['F','♀ Fêmea',T.pinkDark,T.pinkPale]].map(([v,l,c,bg])=><button key={v} onClick={()=>setFN(f=>({...f,sexo:v}))} style={{border:`2.5px solid ${fN.sexo===v?c:T.border}`,borderRadius:12,padding:'11px 0',fontWeight:700,fontSize:14,cursor:'pointer',background:fN.sexo===v?bg:T.card,color:fN.sexo===v?c:T.gray}}>{l}</button>)}</div>
+    </div>
+    <Inp label="Identificador *" value={fN.ident} onChange={v=>setFN(f=>({...f,ident:v}))} placeholder="Ex: BEZ-009"/>
+    <Inp label="📅 Nascimento" value={fN.dataNasc} onChange={v=>setFN(f=>({...f,dataNasc:v}))} type="date"/>
+    {(()=>{const id=calcIdade(fN.dataNasc);return id&&fN.dataNasc?<div style={{fontSize:12,color:id.cor,fontWeight:600,marginBottom:12}}>⏱ {id.label}</div>:null;})()}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Inp label="Raça" value={fN.raca} onChange={v=>setFN(f=>({...f,raca:v}))} placeholder="Nelore"/><Inp label="Peso (kg)" value={fN.peso} onChange={v=>setFN(f=>({...f,peso:v}))} type="number" placeholder="35"/></div>
+    <Sel label="🐄 Mãe" value={fN.maeId} onChange={v=>setFN(f=>({...f,maeId:v}))} opts={[{v:'',l:'Selecionar mãe...'},...vacas.map(v=>({v:String(v.id),l:`${v.ident}${v.raca?' · '+v.raca:''}`}))]}/>
+    <Sel label="Pasto" value={fN.pastoId} onChange={v=>setFN(f=>({...f,pastoId:v}))} opts={[{v:'',l:'Sem pasto'},...pastos.map(p=>({v:String(p.id),l:p.nome}))]}/>
+    <Btn l="💾 Registrar Nascimento" onClick={saveNasc} dis={!fN.ident.trim()}/>
+  </Modal>;
+
+  if(action==='pasto')return<Modal open title="🌿 Mover Animal de Pasto" onClose={onClose}>
+    {!pAnimal?<>
+      <Inp label="Buscar pelo brinco" value={pBusca} onChange={setPBusca} placeholder="Número do brinco..."/>
+      <div style={{maxHeight:300,overflowY:'auto'}}>{filtr.slice(0,25).map(a=>{const pt=pastos.find(p=>p.id===a.pastoId);return<div key={a.id} onClick={()=>setPAnimal(String(a.id))} style={{background:T.bg,borderRadius:12,padding:'11px 13px',marginBottom:7,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{a.ident}</div><div style={{fontSize:12,color:T.gray}}>{a.cat} · {pt?.nome||'Sem pasto'}</div></div><span style={{color:T.green,fontWeight:700,fontSize:18}}>›</span></div>;})}
+      {filtr.length===0&&<div style={{textAlign:'center',padding:20,color:T.gray}}>Nenhum encontrado</div>}</div>
+    </>:<>
+      <div style={{background:T.gPale,borderRadius:12,padding:12,marginBottom:12}}><div style={{fontWeight:800,color:T.text}}>{animais.find(a=>a.id===+pAnimal)?.ident}</div><div style={{fontSize:12,color:T.gray}}>📍 {nomePasto(animais.find(a=>a.id===+pAnimal)?.pastoId)}</div><button onClick={()=>setPAnimal('')} style={{background:'none',border:'none',color:T.green,fontSize:12,cursor:'pointer',marginTop:4,padding:0,fontWeight:600}}>← Trocar animal</button></div>
+      <Sel label="Destino" value={pDest} onChange={setPDest} opts={[{v:'',l:'Selecionar pasto...'},...pastos.filter(p=>String(p.id)!==String(animais.find(a=>a.id===+pAnimal)?.pastoId)).map(p=>({v:String(p.id),l:`${p.nome} · ${PS[p.status]?.l}`}))]}/>
+      <Inp label="Observação" value={pObs} onChange={setPObs} placeholder="Motivo..."/>
+      <Btn l="✅ Confirmar Movimentação" onClick={savePasto} dis={!pDest}/>
+    </>}
+  </Modal>;
+  return null;
+}
+
+// ═══ DASHBOARD ════════════════════════════════════════════════════
+function Dashboard({pastos,animais,fin,sal,onAction}){
+  const T=useT(),hoje=new Date();
+  const mes=`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  const ativos=animais.filter(a=>a.status==='ativo');
+  const bezAtivos=ativos.filter(a=>a.cat==='Bezerro');
+  const bezNovos=bezAtivos.filter(a=>a.dataNasc&&calcIdade(a.dataNasc)?.dias<30);
+  const ultimoSal=[...sal].sort((a,b)=>b.data.localeCompare(a.data))[0];
+  const diasSemSal=ultimoSal?Math.floor((Date.now()-new Date(ultimoSal.data+'T12:00'))/86400000):null;
+  const alertas=[];
+  if(diasSemSal===null||diasSemSal>20)alertas.push({icon:'🧂',msg:diasSemSal===null?'Sal nunca registrado':`${diasSemSal} dias sem registrar sal`});
+  pastos.filter(p=>p.status==='ocupado'&&(p.estado==='ruim'||p.estado==='muito_ruim')).forEach(p=>alertas.push({icon:'🌿',msg:`${p.nome} em estado ${PE[p.estado]?.l} — precisa descanso`}));
+  pastos.filter(p=>p.status==='ocupado'&&p.cap>0&&ativos.filter(a=>a.pastoId===p.id).length/p.cap>0.9).forEach(p=>alertas.push({icon:'🐄',msg:`${p.nome} acima de 90% de lotação`}));
+  const tM=fin.filter(t=>t.data.startsWith(mes));
+  const rec=tM.filter(t=>t.tipo==='receita').reduce((s,t)=>s+t.valor,0),desp=tM.filter(t=>t.tipo==='despesa').reduce((s,t)=>s+t.valor,0),saldo=rec-desp;
+  return <div>
+    <div style={{background:`linear-gradient(135deg,${T.gDark},${T.green})`,padding:'20px 20px 36px',position:'relative'}}>
+      <button onClick={()=>onAction('settings')} style={{position:'absolute',top:14,right:14,background:'rgba(255,255,255,0.15)',border:'none',color:'rgba(255,255,255,0.85)',borderRadius:8,width:34,height:34,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>⚙️</button>
+      <div style={{color:'rgba(255,255,255,0.6)',fontSize:11,textTransform:'uppercase',letterSpacing:'0.8px'}}>Fazenda Santa Clara</div>
+      <div style={{color:'#FFF',fontSize:23,fontWeight:800,marginTop:4}}>Bom dia! 👋</div>
+      <div style={{color:'rgba(255,255,255,0.75)',fontSize:12,marginTop:2}}>{hoje.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div>
+    </div>
+    <div style={{padding:'0 14px 100px',marginTop:-20}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:14}}>
+        {[{icon:'🧂',label:'Registrar Sal',sub:'Repor mineral',c:T.orange,bg:'#FFF3E0',a:'sal'},{icon:'🐮',label:'Nascimento',sub:'Novo bezerro',c:T.pinkDark,bg:T.pinkPale,a:'nascimento'},{icon:'🌿',label:'Mover Animal',sub:'Trocar pasto',c:T.green,bg:T.gPale,a:'pasto'}].map(({icon,label,sub,c,bg,a})=><button key={a} onClick={()=>onAction(a)} style={{background:bg,border:`2px solid ${c}28`,borderRadius:16,padding:'14px 6px 12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:5,minHeight:96}}><span style={{fontSize:30,lineHeight:1}}>{icon}</span><span style={{fontSize:12,fontWeight:800,color:c,textAlign:'center',lineHeight:1.2}}>{label}</span><span style={{fontSize:10,color:c+'99',textAlign:'center'}}>{sub}</span></button>)}
+      </div>
+      {alertas.length>0&&<div style={{background:T.card,borderRadius:14,padding:14,marginBottom:12,border:`1.5px solid ${T.orange}30`,boxShadow:`0 2px 8px ${T.shadow}`}}><div style={{fontWeight:800,color:T.orange,fontSize:13,marginBottom:8}}>⚠️ Alertas da fazenda</div>{alertas.map((a,i)=><div key={i} style={{fontSize:13,color:T.text,padding:'5px 0',borderBottom:i<alertas.length-1?`1px solid ${T.border}`:'none'}}>{a.icon} {a.msg}</div>)}</div>}
+      {bezNovos.length>0&&<Card ch={<><div style={{fontWeight:800,color:T.pinkDark,marginBottom:7}}>🐮 Nascimentos recentes</div>{bezNovos.map(b=>{const id=calcIdade(b.dataNasc);return<div key={b.id} style={{fontSize:13,marginBottom:3}}>• <b>{b.ident}</b> — {id?.label} · {b.sexo==='M'?'♂':'♀'}</div>;})}</>} style={{border:`2px solid ${T.pink}`,background:T.pinkPale}}/>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+        <Card ch={<><div style={{fontSize:28,marginBottom:5}}>🐄</div><div style={{fontSize:34,fontWeight:800,color:T.green,lineHeight:1}}>{ativos.filter(a=>a.cat!=='Bezerro').length}</div><div style={{fontSize:11,color:T.gray,marginTop:2}}>Animais ativos</div></>} style={{margin:0,background:T.gPale}}/>
+        <Card ch={<><div style={{fontSize:28,marginBottom:5}}>🐮</div><div style={{fontSize:34,fontWeight:800,color:T.pinkDark,lineHeight:1}}>{bezAtivos.length}</div><div style={{fontSize:11,color:T.gray,marginTop:2}}>Bezerros</div></>} style={{margin:0,background:T.pinkPale}}/>
+      </div>
+      <Card ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><span style={{fontWeight:800,fontSize:13,color:T.text}}>💰 {hoje.toLocaleDateString('pt-BR',{month:'long'})}</span><Badge l={saldo>=0?'▲ Positivo':'▼ Negativo'} c={saldo>=0?T.gLight:T.red} bg={saldo>=0?T.gPale:'#FFE4E6'}/></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>{[['Entradas',fmtR(rec),T.gLight],['Saídas',fmtR(desp),T.red],['Saldo',fmtR(saldo),saldo>=0?T.green:T.red]].map(([l,v,c])=><div key={l} style={{textAlign:'center',background:T.bg,borderRadius:10,padding:'8px 4px'}}><div style={{fontSize:10,color:T.gray,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{fontWeight:700,color:c,fontSize:11}}>{v}</div></div>)}</div></>}/>
+      <ClimaWidget/>
+    </div>
+  </div>;
+}
+
+// ═══ PASTO DETAIL PAGE ════════════════════════════════════════════
+function PastoDetailPage({pasto,onBack,animais,sal,setSal,manejos,movs,setPastos,pastos}){
+  const T=useT();
+  const animaisNoPasto=animais.filter(a=>a.pastoId===pasto.id&&a.status==='ativo');
+  const salDoPasto=[...sal.filter(s=>s.pastoId===pasto.id)].sort((a,b)=>b.data.localeCompare(a.data));
+  const manejosDoPasto=manejos.filter(m=>m.animaisIds?.some(id=>animaisNoPasto.map(a=>a.id).includes(id)));
+  const movsDoPasto=movs.filter(m=>m.de===pasto.nome||m.para===pasto.nome);
+  const {kg,dias,cd}=calcSal(pasto.id,animaisNoPasto.length,sal,pasto.taxaSal||225);
+  const salCor=dias<3?T.red:dias<7?T.orange:T.gLight;
+  const st=PS[pasto.status]||{},es=PE[pasto.estado]||{};
+  const deletePasto=()=>{setPastos(p=>p.filter(x=>x.id!==pasto.id));onBack();};
+  const deleteSal=id=>setSal(s=>s.filter(x=>x.id!==id));
+  return <DetailPage onBack={onBack} title={pasto.nome} icon="🌿" color={`linear-gradient(135deg,${T.gDark},${T.green})`}>
+    <Section title="Informações do Pasto">
+      <Card ch={<>
+        <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}><Badge l={st.l} c={st.c} bg={st.bg}/><Badge l={es.l} c={es.c} bg={es.c+'22'}/></div>
+        <InfoRow label="Tamanho" value={`${pasto.tam} ${pasto.un}`}/>
+        <InfoRow label="Capacidade" value={`${pasto.cap} animais`}/>
+        <InfoRow label="Animais atuais" value={String(animaisNoPasto.length)}/>
+        <InfoRow label="Taxa de sal" value={`${pasto.taxaSal||225} g/animal/dia`}/>
+        {pasto.obs&&<div style={{marginTop:10,fontSize:13,color:T.orange}}>📝 {pasto.obs}</div>}
+      </>}/>
+    </Section>
+    <Section title="🧂 Sal Mineral — Estoque atual">
+      <Card ch={<>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+          {[['Estoque',`${kg.toFixed(1)} kg`],['Duração',dias>90?'>90d':`${Math.round(dias)}d`],['Consumo',`${cd.toFixed(1)}kg/d`]].map(([l,v])=><div key={l} style={{background:T.bg,borderRadius:10,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:10,color:T.gray,fontWeight:700}}>{l}</div><div style={{fontSize:13,fontWeight:800,color:salCor}}>{v}</div></div>)}
+        </div>
+        <div style={{background:T.bg,borderRadius:8,height:8,overflow:'hidden'}}><div style={{background:salCor,height:'100%',width:`${Math.min(100,Math.max(0,(dias/30)*100))}%`,borderRadius:8}}/></div>
+      </>}/>
+    </Section>
+    <Section title={`📦 Histórico de Sal (${salDoPasto.length})`} empty={salDoPasto.length===0?'Nenhum registro de sal':null}>
+      {salDoPasto.map(s=><Card key={s.id} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{s.sacos} sacos ({s.sacos*30} kg)</div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(s.data)}{s.obs?` · ${s.obs}`:''}</div></div><button onClick={()=>deleteSal(s.id)} style={{background:'#FFE4E6',border:'none',borderRadius:8,padding:'6px 12px',color:T.red,fontWeight:700,fontSize:12,cursor:'pointer'}}>🗑️</button></div></>} style={{marginBottom:8}}/>)}
+    </Section>
+    <Section title={`🐄 Animais atuais (${animaisNoPasto.length})`} empty={animaisNoPasto.length===0?'Nenhum animal neste pasto':null}>
+      {animaisNoPasto.map(a=><Card key={a.id} ch={<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{a.ident}</div><div style={{fontSize:12,color:T.gray}}>{a.cat}{a.raca?` · ${a.raca}`:''} {a.peso>0?`· ⚖️${a.peso}kg`:''}</div></div><span style={{fontSize:13,color:T.gray}}>{a.sexo==='M'?'♂':'♀'}</span></div>} style={{marginBottom:8}}/>)}
+    </Section>
+    <Section title={`🔄 Movimentações (${movsDoPasto.length})`} empty={movsDoPasto.length===0?'Nenhuma movimentação':null}>
+      {[...movsDoPasto].sort((a,b)=>b.data.localeCompare(a.data)).map(m=><Card key={m.id} ch={<><div style={{fontWeight:700,color:T.text,marginBottom:4}}>{m.ident} <span style={{fontSize:11,color:m.para===pasto.nome?T.green:T.red}}>{m.para===pasto.nome?'entrou':'saiu'}</span></div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(m.data)} · {m.de} → {m.para}</div>{m.obs&&<div style={{fontSize:11,color:T.orange,marginTop:3}}>📝 {m.obs}</div>}</>} style={{marginBottom:8}}/>)}
+    </Section>
+    <Section title={`💉 Manejos recentes (${manejosDoPasto.length})`} empty={manejosDoPasto.length===0?'Nenhum manejo':null}>
+      {[...manejosDoPasto].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,5).map(m=>{const ti=TM.find(t=>t.v===m.tipoManejo)||{icon:'💉',c:T.gray};return<Card key={m.id} ch={<><div style={{fontWeight:700,color:T.text}}>{ti.icon} {m.nomeManejo}</div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(m.data)}{m.dose?` · ${m.dose}`:''}</div></>} style={{marginBottom:8}}/>;
+      })}
+    </Section>
+    <DeleteBtn label="este pasto" onConfirm={deletePasto}/>
+    <div style={{height:20}}/>
+  </DetailPage>;
+}
+
+// ═══ PASTOS ═══════════════════════════════════════════════════════
+function Pastos({pastos,setPastos,animais,sal,setSal,manejos,movs}){
+  const T=useT(),[aba,setAba]=useState('pastos'),[filtro,setFiltro]=useState('todos');
+  const [addM,setAddM]=useState(false),[editM,setEditM]=useState(null),[detailPasto,setDetailPasto]=useState(null);
+  const [mapa,setMapa]=useState(false),[mapaDest,setMapaDest]=useState('');
+  const eF={nome:'',tam:'',un:'ha',cap:'',estado:'bom',status:'vazio',obs:'',taxaSal:'225'};
+  const [form,setForm]=useState(eF);
+  const animN=id=>animais.filter(a=>a.pastoId===id&&a.status==='ativo').length;
+  const filtrados=filtro==='todos'?pastos:pastos.filter(p=>p.status===filtro);
+  const addPasto=()=>{if(!form.nome.trim())return;setPastos(p=>[...p,{...form,id:Date.now(),tam:+form.tam||0,cap:+form.cap||0,taxaSal:+form.taxaSal||225}]);setAddM(false);setForm(eF);};
+  const salvarEdit=()=>{if(!editM?.nome?.trim())return;setPastos(p=>p.map(x=>x.id===editM.id?{...editM,tam:+editM.tam,cap:+editM.cap,taxaSal:+editM.taxaSal}:x));setEditM(null);};
+  const aplicarArea=ha=>{const v=ha.toFixed(2);if(mapaDest==='add')setForm(f=>({...f,tam:v}));if(mapaDest==='edit')setEditM(e=>({...e,tam:v}));setMapa(false);};
+  const [salModal,setSalModal]=useState(false);
+  const eFS={pastoId:'',sacos:'',data:TODAY,obs:''};const[formS,setFormS]=useState(eFS);
+  const oc=pastos.filter(p=>p.status==='ocupado');
+  const addSal=()=>{if(!formS.pastoId||!formS.sacos)return;setSal(s=>[...s,{...formS,id:Date.now(),pastoId:+formS.pastoId,sacos:+formS.sacos}]);setSalModal(false);setFormS(eFS);};
+
+  if(detailPasto)return<PastoDetailPage pasto={detailPasto} onBack={()=>setDetailPasto(null)} animais={animais} sal={sal} setSal={setSal} manejos={manejos} movs={movs} setPastos={setPastos} pastos={pastos}/>;
+
+  return <div style={{paddingBottom:100}}>
+    {mapa&&<MapaMedicao onAplicar={aplicarArea} onFechar={()=>setMapa(false)}/>}
+    <PgH sub="Gestão de" title="Pastos 🌿" extra={<Badge l={`${pastos.length} pastos`} c='#FFF' bg='rgba(255,255,255,0.25)'/>}/>
+    <div style={{display:'flex',background:T.gDark}}>{[['pastos','🌿 Pastos'],['sal','🧂 Sal']].map(([id,lbl])=><button key={id} onClick={()=>setAba(id)} style={{flex:1,border:'none',background:'none',color:aba===id?'#FFF':'rgba(255,255,255,0.45)',fontWeight:700,fontSize:13,padding:'11px 0',cursor:'pointer',borderBottom:aba===id?'3px solid #FFF':'3px solid transparent'}}>{lbl}</button>)}</div>
+    {aba==='pastos'&&<div style={{padding:'12px 14px 0'}}>
+      <div style={{display:'flex',gap:7,overflowX:'auto',paddingBottom:10,scrollbarWidth:'none'}}>{['todos',...Object.keys(PS)].map(f=><button key={f} onClick={()=>setFiltro(f)} style={{border:'none',borderRadius:20,padding:'7px 14px',fontSize:12,fontWeight:600,background:filtro===f?T.green:T.gPale,color:filtro===f?'#FFF':T.green,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>{f==='todos'?`Todos (${pastos.length})`:PS[f]?.l}</button>)}</div>
+      {filtrados.map(p=>{const st=PS[p.status]||{},es=PE[p.estado]||{},qtd=animN(p.id),oc2=p.cap>0?(qtd/p.cap)*100:0;return<Card key={p.id} onClick={()=>setDetailPasto(p)} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><div style={{fontWeight:700,fontSize:15,color:T.text}}>{p.nome}</div><div style={{fontSize:12,color:T.gray,marginTop:2}}>{p.tam} {p.un} · Cap. {p.cap} <span style={{color:T.gray,fontSize:10}}>• Toque para detalhes</span></div></div><div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}><Badge l={st.l} c={st.c} bg={st.bg}/><Badge l={es.l} c={es.c} bg={es.c+'22'}/></div></div>{p.status==='ocupado'&&p.cap>0&&<div style={{marginTop:8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:T.gray}}>Ocupação</span><span style={{fontSize:11,fontWeight:700,color:T.text}}>{qtd}/{p.cap}</span></div><div style={{background:T.bg,borderRadius:4,height:6,overflow:'hidden'}}><div style={{background:oc2>90?T.red:oc2>70?T.orange:T.gLight,height:'100%',width:`${Math.min(100,oc2)}%`,borderRadius:4}}/></div></div>}{p.obs&&<div style={{fontSize:11,color:T.orange,marginTop:7}}>📝 {p.obs}</div>}</>}/>;
+      })}
+      <Btn l="+ Adicionar Pasto" onClick={()=>{setForm(eF);setAddM(true);}}/>
+    </div>}
+    {aba==='sal'&&<div style={{padding:'12px 14px 0'}}>
+      {oc.map(p=>{const n=animais.filter(a=>a.pastoId===p.id&&a.status==='ativo').length;const{kg,dias,cd}=calcSal(p.id,n,sal,p.taxaSal||225);const cor=dias<3?T.red:dias<7?T.orange:T.gLight;const sta=dias<3?'🚨 Crítico':dias<7?'⚠️ Baixo':'✅ OK';const pct=Math.min(100,Math.max(0,(dias/30)*100));return<Card key={p.id} onClick={()=>setDetailPasto(p)} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}><div><div style={{fontWeight:700,fontSize:14,color:T.text}}>{p.nome}</div><div style={{fontSize:11,color:T.gray}}>{n} animais · {cd.toFixed(1)} kg/dia</div></div><Badge l={sta} c={cor} bg={cor+'18'}/></div><div style={{background:T.bg,borderRadius:8,height:9,overflow:'hidden',marginBottom:8}}><div style={{background:cor,height:'100%',width:`${pct}%`,borderRadius:8}}/></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>{[['Estoque',`${kg.toFixed(1)} kg`],['Duração',dias>90?'>90d':`${Math.round(dias)}d`],['Taxa',`${p.taxaSal||225}g`]].map(([l,v])=><div key={l} style={{background:T.bg,borderRadius:8,padding:'7px 5px',textAlign:'center'}}><div style={{fontSize:10,color:T.gray,fontWeight:700}}>{l}</div><div style={{fontSize:11,fontWeight:700,color:T.text}}>{v}</div></div>)}</div></>}/>;
+      })}
+      <Btn l="+ Registrar Sacos de Sal" icon="🧂" onClick={()=>{setFormS(f=>({...f,pastoId:String(oc[0]?.id||'')}));setSalModal(true);}}/>
+      <Modal open={salModal} onClose={()=>setSalModal(false)} title="Repor Sal Mineral">
+        <Sel label="Pasto" value={formS.pastoId} onChange={v=>setFormS(f=>({...f,pastoId:v}))} opts={[{v:'',l:'Selecionar...'},...oc.map(p=>({v:String(p.id),l:p.nome}))]}/>
+        <Inp label="Sacos (30 kg/saco)" value={formS.sacos} onChange={v=>setFormS(f=>({...f,sacos:v}))} type="number" placeholder="3"/>
+        <Inp label="Data" value={formS.data} onChange={v=>setFormS(f=>({...f,data:v}))} type="date"/>
+        <Inp label="Observações" value={formS.obs} onChange={v=>setFormS(f=>({...f,obs:v}))} placeholder="Opcional..."/>
+        <Btn l="💾 Salvar Reposição" onClick={addSal} dis={!formS.pastoId||!formS.sacos}/>
+      </Modal>
+    </div>}
+    <Modal open={addM} onClose={()=>setAddM(false)} title="Novo Pasto">
+      <Inp label="Nome *" value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))} placeholder="Ex: Pasto Norte"/>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}><Inp label="Tamanho" value={form.tam} onChange={v=>setForm(f=>({...f,tam:v}))} type="number" placeholder="45"/><Sel label="Unidade" value={form.un} onChange={v=>setForm(f=>({...f,un:v}))} opts={[{v:'ha',l:'ha'},{v:'ac',l:'ac'},{v:'m²',l:'m²'}]}/></div>
+      <button onClick={()=>{setMapaDest('add');setMapa(true);}} style={{width:'100%',background:T.gPale,border:`1.5px dashed ${T.gLight}`,borderRadius:10,padding:11,fontSize:13,fontWeight:600,color:T.green,cursor:'pointer',marginBottom:13,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>🛰️ Medir no satélite {form.tam?`· ${form.tam} ha`:''}</button>
+      <Inp label="Capacidade" value={form.cap} onChange={v=>setForm(f=>({...f,cap:v}))} type="number" placeholder="80"/>
+      <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} opts={Object.entries(PS).map(([k,v])=>({v:k,l:v.l}))}/>
+      <Sel label="Estado" value={form.estado} onChange={v=>setForm(f=>({...f,estado:v}))} opts={Object.entries(PE).map(([k,v])=>({v:k,l:v.l}))}/>
+      <Inp label="Taxa de sal (g/dia)" value={form.taxaSal} onChange={v=>setForm(f=>({...f,taxaSal:v}))} type="number" placeholder="225"/>
+      <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} placeholder="Opcional..."/>
+      <Btn l="💾 Salvar Pasto" onClick={addPasto} dis={!form.nome.trim()}/>
+    </Modal>
+    <Modal open={!!editM} onClose={()=>setEditM(null)} title="Editar Pasto">
+      {editM&&<><Inp label="Nome" value={editM.nome} onChange={v=>setEditM(e=>({...e,nome:v}))}/><div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}><Inp label="Tamanho" value={editM.tam} onChange={v=>setEditM(e=>({...e,tam:v}))} type="number"/><Sel label="Unidade" value={editM.un} onChange={v=>setEditM(e=>({...e,un:v}))} opts={[{v:'ha',l:'ha'},{v:'ac',l:'ac'},{v:'m²',l:'m²'}]}/></div><button onClick={()=>{setMapaDest('edit');setMapa(true);}} style={{width:'100%',background:T.gPale,border:`1.5px dashed ${T.gLight}`,borderRadius:10,padding:11,fontSize:13,fontWeight:600,color:T.green,cursor:'pointer',marginBottom:13,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>🛰️ Medir</button><Inp label="Capacidade" value={editM.cap} onChange={v=>setEditM(e=>({...e,cap:v}))} type="number"/><Sel label="Status" value={editM.status} onChange={v=>setEditM(e=>({...e,status:v}))} opts={Object.entries(PS).map(([k,v])=>({v:k,l:v.l}))}/><Sel label="Estado" value={editM.estado} onChange={v=>setEditM(e=>({...e,estado:v}))} opts={Object.entries(PE).map(([k,v])=>({v:k,l:v.l}))}/><Inp label="Taxa de sal" value={editM.taxaSal||225} onChange={v=>setEditM(e=>({...e,taxaSal:+v}))} type="number"/><Inp label="Observações" value={editM.obs} onChange={v=>setEditM(e=>({...e,obs:v}))}/><Btn l="💾 Salvar" onClick={salvarEdit}/></>}
+    </Modal>
+  </div>;
+}
+
+// ═══ ANIMAL DETAIL PAGE ═══════════════════════════════════════════
+function AnimalDetailPage({animal,onBack,animais,pastos,movs,manejos,setAnimais,setMovs}){
+  const T=useT();
+  const id=calcIdade(animal.dataNasc);
+  const mae=animal.maeId?animais.find(a=>a.id===animal.maeId):null;
+  const pasto=pastos.find(p=>p.id===animal.pastoId);
+  const movAnimal=[...movs.filter(m=>m.ident===animal.ident)].sort((a,b)=>b.data.localeCompare(a.data));
+  const manejoAnimal=[...manejos.filter(m=>m.animaisIds?.includes(animal.id))].sort((a,b)=>b.data.localeCompare(a.data));
+  const filhos=animais.filter(a=>a.maeId===animal.id);
+  const [moveM,setMoveM]=useState(false),[dest,setDest]=useState(''),[obsM,setObsM]=useState('');
+  const nomePasto=id2=>pastos.find(p=>p.id===id2)?.nome||'—';
+  const mover=()=>{if(!dest)return;setMovs(m=>[{id:Date.now(),ident:animal.ident,de:nomePasto(animal.pastoId),para:nomePasto(+dest),data:TODAY,obs:obsM},...m]);setAnimais(a=>a.map(x=>x.id===animal.id?{...x,pastoId:+dest}:x));setMoveM(false);setDest('');setObsM('');onBack();};
+  const deleteAnimal=()=>{setAnimais(a=>a.filter(x=>x.id!==animal.id));onBack();};
+  const corTopo=animal.sexo==='M'?`linear-gradient(135deg,${T.blueMid},${T.bLight})`:`linear-gradient(135deg,${T.pinkDark},${T.pink})`;
+  return <DetailPage onBack={onBack} title={animal.ident} icon={animal.cat==='Bezerro'?'🐮':animal.sexo==='M'?'🐂':'🐄'} color={corTopo}>
+    <Section title="Dados do Animal">
+      <Card ch={<>
+        <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+          <Badge l={animal.cat} c={T.green} bg={T.gPale}/>
+          <Badge l={animal.sexo==='M'?'♂ Macho':'♀ Fêmea'} c={animal.sexo==='M'?T.blueMid:T.pinkDark} bg={animal.sexo==='M'?T.bluePale:T.pinkPale}/>
+        </div>
+        <InfoRow label="Raça" value={animal.raca}/>
+        <InfoRow label="Lote" value={animal.lote}/>
+        <InfoRow label="Peso" value={animal.peso>0?`${animal.peso} kg`:null}/>
+        <InfoRow label="Pasto atual" value={pasto?.nome} color={T.green}/>
+        {animal.dataNasc&&<InfoRow label="Nascimento" value={fmtD(animal.dataNasc)}/>}
+        {id&&<InfoRow label="Idade" value={id.label} color={id.cor}/>}
+        {mae&&<InfoRow label="Mãe" value={mae.ident}/>}
+        {animal.obs&&<div style={{marginTop:10,fontSize:13,color:T.orange}}>📝 {animal.obs}</div>}
+      </>}/>
+    </Section>
+    {filhos.length>0&&<Section title={`🐮 Filhos (${filhos.length})`}>
+      {filhos.map(f=>{const fi=calcIdade(f.dataNasc);return<Card key={f.id} ch={<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{f.ident} <span style={{fontSize:11,color:f.sexo==='M'?T.blueMid:T.pinkDark}}>{f.sexo==='M'?'♂':'♀'}</span></div><div style={{fontSize:12,color:T.gray}}>{fi?fi.label:'—'}</div></div></div>} style={{marginBottom:8}}/>;
+      })}
+    </Section>}
+    <Section title={`🔄 Movimentações (${movAnimal.length})`} empty={movAnimal.length===0?'Nenhuma movimentação':null}>
+      {movAnimal.map(m=><Card key={m.id} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}><span style={{fontWeight:700,color:T.text,fontSize:13}}>📅 {fmtD(m.data)}</span></div><div style={{display:'flex',gap:5,alignItems:'center',fontSize:13,background:T.bg,borderRadius:8,padding:'6px 10px'}}><span style={{color:T.red,fontWeight:600}}>📍 {m.de}</span><span style={{color:T.gray}}>→</span><span style={{color:T.green,fontWeight:600}}>📍 {m.para}</span></div>{m.obs&&<div style={{fontSize:11,color:T.orange,marginTop:4}}>📝 {m.obs}</div>}</>} style={{marginBottom:8}}/>)}
+    </Section>
+    <Section title={`💉 Manejos (${manejoAnimal.length})`} empty={manejoAnimal.length===0?'Nenhum manejo':null}>
+      {manejoAnimal.map(m=>{const ti=TM.find(t=>t.v===m.tipoManejo)||{icon:'💉',c:T.gray};return<Card key={m.id} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{ti.icon} {m.nomeManejo}</div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(m.data)}{m.dose?` · ${m.dose}`:''}</div></div><Badge l={ti.icon} c={ti.c} bg={ti.c+'18'}/></div>{m.obs&&<div style={{fontSize:11,color:T.gray,marginTop:4}}>📝 {m.obs}</div>}</>} style={{marginBottom:8}}/>;
+      })}
+    </Section>
+    <Btn l="🌿 Mover de Pasto" color={T.green} onClick={()=>setMoveM(true)} style={{marginBottom:10}}/>
+    <DeleteBtn label={animal.ident} onConfirm={deleteAnimal}/>
+    <div style={{height:20}}/>
+    <Modal open={moveM} onClose={()=>setMoveM(false)} title={`Mover ${animal.ident}`}>
+      <div style={{background:T.gPale,borderRadius:12,padding:11,marginBottom:12}}><div style={{fontWeight:700,color:T.text}}>{animal.ident}</div><div style={{fontSize:12,color:T.gray}}>📍 {nomePasto(animal.pastoId)}</div></div>
+      <Sel label="Destino" value={dest} onChange={setDest} opts={[{v:'',l:'Selecionar pasto...'},...pastos.filter(p=>p.id!==animal.pastoId).map(p=>({v:String(p.id),l:`${p.nome} · ${PS[p.status]?.l}`}))]}/>
+      <Inp label="Observação" value={obsM} onChange={setObsM} placeholder="Motivo..."/>
+      <Btn l="✅ Confirmar" onClick={mover} dis={!dest}/>
+    </Modal>
+  </DetailPage>;
+}
+
+// ═══ ANIMAIS ══════════════════════════════════════════════════════
+function Animais({animais,setAnimais,pastos,movs,setMovs,manejos}){
+  const T=useT(),[aba,setAba]=useState('rebanho'),[addM,setAddM]=useState(false),[busca,setBusca]=useState('');
+  const [detailAnimal,setDetailAnimal]=useState(null);
+  const vacas=animais.filter(a=>a.status==='ativo'&&(a.cat==='Vaca'||a.cat==='Novilha'));
+  const eF={ident:'',cat:'Boi',raca:'',lote:'A',pastoId:'',peso:'',obs:'',sexo:'M',dataNasc:'',maeId:''};
+  const [form,setForm]=useState(eF);
+  const ativos=animais.filter(a=>a.status==='ativo'),rebanho=ativos.filter(a=>a.cat!=='Bezerro'),bezerros=ativos.filter(a=>a.cat==='Bezerro');
+  const filtrR=busca?rebanho.filter(a=>a.ident.toLowerCase().includes(busca.toLowerCase())||a.lote.toLowerCase().includes(busca.toLowerCase())):rebanho;
+  const filtrB=busca?bezerros.filter(a=>a.ident.toLowerCase().includes(busca.toLowerCase())):bezerros;
+  const nomePasto=id=>pastos.find(p=>p.id===id)?.nome||'—';
+  const addAnimal=()=>{if(!form.ident.trim())return;setAnimais(a=>[...a,{...form,id:Date.now(),status:'ativo',pastoId:form.pastoId?+form.pastoId:null,peso:+form.peso||0,maeId:form.maeId?+form.maeId:null}]);setAddM(false);setForm(eF);};
+  const cI={Boi:'🐂',Vaca:'🐄',Novilha:'🐄',Bezerro:'🐮',Touro:'🐂'};
+  const bezOrd=[...filtrB].sort((a,b)=>{if(a.dataNasc&&b.dataNasc)return b.dataNasc.localeCompare(a.dataNasc);if(a.dataNasc)return-1;return 1;});
+
+  if(detailAnimal){const fresh=animais.find(a=>a.id===detailAnimal.id);if(!fresh)return null;return<AnimalDetailPage animal={fresh} onBack={()=>setDetailAnimal(null)} animais={animais} pastos={pastos} movs={movs} manejos={manejos} setAnimais={setAnimais} setMovs={setMovs}/>;}
+
+  return <div style={{paddingBottom:100}}>
+    <PgH sub="Gestão de" title="Animais 🐄" extra={<div style={{display:'flex',gap:5}}><Badge l={`${rebanho.length} reb.`} c='#FFF' bg='rgba(255,255,255,0.2)'/><Badge l={`${bezerros.length} bez.`} c='#FFF' bg='rgba(255,255,255,0.2)'/></div>}/>
+    <div style={{display:'flex',background:T.gDark}}>{[['rebanho',`🐄 Rebanho (${rebanho.length})`],['bezerros',`🐮 Bezerros (${bezerros.length})`]].map(([id,lbl])=><button key={id} onClick={()=>setAba(id)} style={{flex:1,border:'none',background:'none',color:aba===id?'#FFF':'rgba(255,255,255,0.45)',fontWeight:700,fontSize:13,padding:'11px 0',cursor:'pointer',borderBottom:aba===id?'3px solid #FFF':'3px solid transparent'}}>{lbl}</button>)}</div>
+    <div style={{padding:'12px 14px 0'}}>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar..." style={{width:'100%',border:`1.5px solid ${T.border}`,borderRadius:12,padding:'11px 13px',fontSize:14,outline:'none',background:T.card,color:T.text,marginBottom:11}}/>
+      {aba==='rebanho'&&<>
+        {filtrR.map(a=><Card key={a.id} onClick={()=>setDetailAnimal(a)} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{display:'flex',gap:11,alignItems:'center'}}><div style={{fontSize:32,flexShrink:0}}>{cI[a.cat]||'🐄'}</div><div><div style={{fontWeight:700,fontSize:15,color:T.text}}>{a.ident}</div><div style={{fontSize:12,color:T.gray}}>{a.cat}{a.raca?` · ${a.raca}`:''} · Lote {a.lote}</div><div style={{fontSize:11,color:T.green,marginTop:2}}>📍 {nomePasto(a.pastoId)}</div>{a.peso>0&&<div style={{fontSize:11,color:T.gray}}>⚖️ {a.peso}kg</div>}</div></div><span style={{color:T.gray,fontSize:18}}>›</span></div>{a.obs&&<div style={{fontSize:11,color:T.orange,marginTop:5}}>📝 {a.obs}</div>}</>}/>)}
+        {filtrR.length===0&&busca&&<div style={{textAlign:'center',padding:20,color:T.gray}}>Nenhum resultado</div>}
+      </>}
+      {aba==='bezerros'&&<>
+        {bezerros.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:7,marginBottom:12}}>{[['Total',bezerros.length,T.text,T.bg],['♂ Machos',bezerros.filter(b=>b.sexo==='M').length,T.blueMid,T.bluePale],['♀ Fêmeas',bezerros.filter(b=>b.sexo==='F').length,T.pinkDark,T.pinkPale]].map(([l,v,c,bg])=><div key={l} style={{background:bg,borderRadius:12,padding:'9px 6px',textAlign:'center'}}><div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div><div style={{fontSize:10,color:c,fontWeight:700}}>{l}</div></div>)}</div>}
+        {bezOrd.length===0&&<div style={{textAlign:'center',padding:'36px 20px',color:T.gray}}><div style={{fontSize:44}}>🐮</div><div style={{fontSize:15,fontWeight:600,marginTop:10}}>Nenhum bezerro</div></div>}
+        {bezOrd.map(b=>{
+          const id=calcIdade(b.dataNasc),fase=!id?null:id.dias<30?'Neonato':id.dias<90?'Lactente':id.dias<210?'Desmame':'Recria';
+          const mae=b.maeId?animais.find(a=>a.id===b.maeId):null;
+          return<div key={b.id} onClick={()=>setDetailAnimal(b)} style={{background:T.card,borderRadius:16,marginBottom:11,boxShadow:`0 2px 8px ${T.shadow}`,overflow:'hidden',cursor:'pointer'}}>
+            <div style={{background:b.sexo==='M'?`linear-gradient(135deg,${T.blueMid},${T.bLight})`:`linear-gradient(135deg,${T.pinkDark},${T.pink})`,padding:'7px 13px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{display:'flex',alignItems:'center',gap:7}}><span style={{fontSize:20}}>🐮</span><span style={{color:'#FFF',fontWeight:800,fontSize:14}}>{b.ident}</span><span style={{background:'rgba(255,255,255,0.25)',color:'#FFF',borderRadius:20,padding:'1px 8px',fontSize:11,fontWeight:700}}>{b.sexo==='M'?'♂':'♀'}</span></div>
+              {fase&&<span style={{background:'rgba(255,255,255,0.2)',color:'#FFF',borderRadius:20,padding:'1px 9px',fontSize:10,fontWeight:700}}>{fase}</span>}
+            </div>
+            <div style={{padding:'10px 13px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,marginBottom:7}}>
+                <div style={{background:T.bg,borderRadius:9,padding:'7px 9px'}}><div style={{fontSize:9,color:T.gray,fontWeight:700,textTransform:'uppercase',marginBottom:2}}>⏱ Idade</div>{id?<div style={{fontWeight:800,color:id.cor,fontSize:14}}>{id.label}</div>:<div style={{color:T.gray,fontSize:12}}>—</div>}{b.dataNasc&&<div style={{fontSize:10,color:T.gray}}>📅 {fmtD(b.dataNasc)}</div>}</div>
+                <div style={{background:T.bg,borderRadius:9,padding:'7px 9px'}}><div style={{fontSize:9,color:T.gray,fontWeight:700,textTransform:'uppercase',marginBottom:2}}>🐄 Mãe</div>{mae?<><div style={{fontWeight:700,color:T.text,fontSize:13}}>{mae.ident}</div><div style={{fontSize:10,color:T.gray}}>{mae.raca||'—'}</div></>:<div style={{color:T.gray,fontSize:12}}>—</div>}</div>
+              </div>
+              <div style={{fontSize:11,color:T.green}}>📍 {pastos.find(p=>p.id===b.pastoId)?.nome||'Sem pasto'}{b.peso>0?` · ⚖️ ${b.peso}kg`:''}</div>
+            </div>
+          </div>;
+        })}
+      </>}
+      <Btn l={`+ Cadastrar ${aba==='bezerros'?'Bezerro':'Animal'}`} onClick={()=>{setForm({...eF,cat:aba==='bezerros'?'Bezerro':'Boi'});setAddM(true);}}/>
+    </div>
+    <Modal open={addM} onClose={()=>setAddM(false)} title="Cadastrar Animal">
+      <Sel label="Categoria" value={form.cat} onChange={v=>setForm(f=>({...f,cat:v}))} opts={['Boi','Vaca','Novilha','Bezerro','Touro'].map(v=>({v,l:v}))}/>
+      {form.cat==='Bezerro'&&<div style={{background:T.pinkPale,borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{fontWeight:700,color:T.pinkDark,fontSize:12,marginBottom:10}}>🐮 Dados do Bezerro</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>{[['M','♂ Macho',T.blueMid,T.bluePale],['F','♀ Fêmea',T.pinkDark,T.pinkPale]].map(([v,l,c,bg])=><button key={v} onClick={()=>setForm(f=>({...f,sexo:v}))} style={{border:`2.5px solid ${form.sexo===v?c:T.border}`,borderRadius:11,padding:'11px 0',fontWeight:700,fontSize:13,cursor:'pointer',background:form.sexo===v?bg:T.card,color:form.sexo===v?c:T.gray}}>{l}</button>)}</div>
+        <Inp label="📅 Data de nascimento" value={form.dataNasc} onChange={v=>setForm(f=>({...f,dataNasc:v}))} type="date"/>
+        {form.dataNasc&&(()=>{const id=calcIdade(form.dataNasc);return id?<div style={{fontSize:12,color:id.cor,fontWeight:600,marginBottom:11}}>⏱ {id.label}</div>:null;})()}
+        <Sel label="🐄 Mãe" value={form.maeId} onChange={v=>setForm(f=>({...f,maeId:v}))} opts={[{v:'',l:'Selecionar mãe...'},...vacas.map(v=>({v:String(v.id),l:`${v.ident}${v.raca?' · '+v.raca:''}`}))]}/>
+      </div>}
+      {form.cat!=='Bezerro'&&<div style={{marginBottom:12}}><label style={{display:'block',fontSize:11,fontWeight:700,color:T.gray,marginBottom:7,textTransform:'uppercase'}}>Sexo</label><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>{[['M','♂ Macho',T.blueMid,T.bluePale],['F','♀ Fêmea',T.pinkDark,T.pinkPale]].map(([v,l,c,bg])=><button key={v} onClick={()=>setForm(f=>({...f,sexo:v}))} style={{border:`2.5px solid ${form.sexo===v?c:T.border}`,borderRadius:11,padding:'11px 0',fontWeight:700,fontSize:13,cursor:'pointer',background:form.sexo===v?bg:T.card,color:form.sexo===v?c:T.gray}}>{l}</button>)}</div></div>}
+      <Inp label="Identificador *" value={form.ident} onChange={v=>setForm(f=>({...f,ident:v}))} placeholder="Ex: BOI-023"/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Inp label="Raça" value={form.raca} onChange={v=>setForm(f=>({...f,raca:v}))} placeholder="Nelore"/><Inp label="Lote" value={form.lote} onChange={v=>setForm(f=>({...f,lote:v}))} placeholder="A"/></div>
+      <Inp label="Peso (kg)" value={form.peso} onChange={v=>setForm(f=>({...f,peso:v}))} type="number" placeholder="480"/>
+      <Sel label="Pasto" value={form.pastoId} onChange={v=>setForm(f=>({...f,pastoId:v}))} opts={[{v:'',l:'Selecionar...'},...pastos.map(p=>({v:String(p.id),l:p.nome}))]}/>
+      <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} placeholder="Opcional..."/>
+      <Btn l="💾 Salvar Animal" onClick={addAnimal} dis={!form.ident.trim()}/>
+    </Modal>
+  </div>;
+}
+
+// ═══ FINANCEIRO ═══════════════════════════════════════════════════
+function Financeiro({fin,setFin}){
+  const T=useT(),[aba,setAba]=useState('tudo'),[modal,setM]=useState(false),[detail,setDetail]=useState(null);
+  const eF={tipo:'despesa',valor:'',cat:'Alimentação',desc:'',data:TODAY};
+  const [form,setForm]=useState(eF);
+  const hoje=new Date(),mes=`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  const tM=fin.filter(t=>t.data.startsWith(mes));
+  const rec=tM.filter(t=>t.tipo==='receita').reduce((s,t)=>s+t.valor,0),desp=tM.filter(t=>t.tipo==='despesa').reduce((s,t)=>s+t.valor,0),saldo=rec-desp;
+  const catR=['Venda de gado','Leite','Arrendamento','Outros'],catD=['Alimentação','Manutenção','Animal','Pasto','Combustível','Mão de obra','Outros'];
+  const add=()=>{if(!form.valor)return;setFin(f=>[{...form,id:Date.now(),valor:+form.valor},...f]);setM(false);setForm(eF);};
+  const del=id=>{setFin(f=>f.filter(x=>x.id!==id));setDetail(null);};
+  const lista=(aba==='tudo'?tM:tM.filter(t=>t.tipo===(aba==='rec'?'receita':'despesa'))).sort((a,b)=>b.data.localeCompare(a.data));
+  if(detail){
+    const isR=detail.tipo==='receita',cor=isR?T.green:T.red;
+    return <DetailPage onBack={()=>setDetail(null)} title={isR?'Receita':'Despesa'} icon={isR?'▲':'▼'} color={`linear-gradient(135deg,${isR?T.gDark:'#7B1D1D'},${isR?T.green:T.red})`}>
+      <Section title="Detalhes da Transação">
+        <Card ch={<><div style={{textAlign:'center',padding:'16px 0',marginBottom:12}}><div style={{fontSize:40,fontWeight:800,color:cor}}>{isR?'+':'-'}{fmtR(detail.valor)}</div><div style={{fontSize:13,color:T.gray,marginTop:4}}>{fmtD(detail.data)}</div></div><InfoRow label="Categoria" value={detail.cat}/><InfoRow label="Tipo" value={isR?'Receita':'Despesa'} color={cor}/><InfoRow label="Descrição" value={detail.desc||'—'}/><InfoRow label="Data" value={fmtD(detail.data)}/></>}/>
+      </Section>
+      <DeleteBtn label="esta transação" onConfirm={()=>del(detail.id)}/>
+      <div style={{height:20}}/>
+    </DetailPage>;
+  }
+  return <div style={{paddingBottom:100}}>
+    <PgH sub="Controle" title="Financeiro 💰"/>
+    <div style={{padding:'12px 14px 0'}}>
+      <div style={{background:saldo>=0?`linear-gradient(135deg,${T.gDark},${T.green})`:`linear-gradient(135deg,#7B1D1D,${T.red})`,borderRadius:16,padding:18,marginBottom:12,color:'#FFF'}}>
+        <div style={{fontSize:11,opacity:0.75,textTransform:'uppercase',letterSpacing:'0.5px'}}>Saldo do mês</div>
+        <div style={{fontSize:34,fontWeight:800}}>{fmtR(saldo)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:12}}><div><div style={{fontSize:11,opacity:0.7}}>▲ Entradas</div><div style={{fontWeight:700,fontSize:15}}>{fmtR(rec)}</div></div><div><div style={{fontSize:11,opacity:0.7}}>▼ Saídas</div><div style={{fontWeight:700,fontSize:15}}>{fmtR(desp)}</div></div></div>
+      </div>
+      <div style={{display:'flex',gap:7,marginBottom:11}}>{[['tudo','Tudo'],['rec','Entradas'],['desp','Saídas']].map(([id,lbl])=><button key={id} onClick={()=>setAba(id)} style={{flex:1,border:'none',borderRadius:10,padding:'10px 0',fontWeight:600,fontSize:13,cursor:'pointer',background:aba===id?T.green:T.gPale,color:aba===id?'#FFF':T.green}}>{lbl}</button>)}</div>
+      {lista.length===0&&<div style={{textAlign:'center',padding:22,color:T.gray}}>Nenhum lançamento</div>}
+      {lista.map(t=><div key={t.id} onClick={()=>setDetail(t)} style={{background:T.card,borderRadius:12,padding:'11px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:7,boxShadow:`0 1px 4px ${T.shadow}`,cursor:'pointer'}}>
+        <div style={{display:'flex',gap:9,alignItems:'center'}}><div style={{width:34,height:34,borderRadius:9,background:t.tipo==='receita'?T.gPale:'#FFE4E6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>{t.tipo==='receita'?'▲':'▼'}</div><div><div style={{fontWeight:600,fontSize:13,color:T.text}}>{t.cat}</div><div style={{fontSize:11,color:T.gray}}>{t.desc&&t.desc+' · '}{fmtD(t.data)}</div></div></div>
+        <div style={{fontWeight:700,color:t.tipo==='receita'?T.gLight:T.red,fontSize:14,flexShrink:0}}>{t.tipo==='receita'?'+':'-'}{fmtR(t.valor)}</div>
+      </div>)}
+      <Btn l="+ Lançar Transação" onClick={()=>setM(true)}/>
+    </div>
+    <Modal open={modal} onClose={()=>setM(false)} title="Nova Transação">
+      <div style={{display:'flex',gap:7,marginBottom:13}}>{[['receita','▲ Entrada'],['despesa','▼ Saída']].map(([tp,lbl])=><button key={tp} onClick={()=>setForm(f=>({...f,tipo:tp,cat:tp==='receita'?catR[0]:catD[0]}))} style={{flex:1,border:'none',borderRadius:11,padding:13,fontWeight:700,fontSize:14,cursor:'pointer',background:form.tipo===tp?(tp==='receita'?T.green:T.red):T.bg,color:form.tipo===tp?'#FFF':T.gray}}>{lbl}</button>)}</div>
+      <Inp label="Valor (R$) *" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} type="number" placeholder="0,00"/>
+      <Sel label="Categoria" value={form.cat} onChange={v=>setForm(f=>({...f,cat:v}))} opts={(form.tipo==='receita'?catR:catD).map(v=>({v,l:v}))}/>
+      <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))} placeholder="Opcional..."/>
+      <Inp label="Data" value={form.data} onChange={v=>setForm(f=>({...f,data:v}))} type="date"/>
+      <Btn l="💾 Salvar" onClick={add} dis={!form.valor}/>
+    </Modal>
+  </div>;
+}
+
+// ═══ CURRAL ═══════════════════════════════════════════════════════
+function CurralTool({animais,pastos,onSalvar,onFechar}){
+  const T=useT(),[cfg,setCfg]=useState(true),[tipo,setTipo]=useState('ivermectina'),[nomeC,setNomeC]=useState(''),[dose,setDose]=useState(''),[data,setData]=useState(TODAY),[obs,setObs]=useState('');
+  const [pF,setPF]=useState('todos'),[checked,setChecked]=useState({}),[busca,setBusca]=useState(''),[salvo,setSalvo]=useState(false);
+  const ativos=animais.filter(a=>a.status==='ativo'),porPasto=pF==='todos'?ativos:ativos.filter(a=>String(a.pastoId)===pF);
+  const filtrados=busca?porPasto.filter(a=>a.ident.toLowerCase().includes(busca.toLowerCase())):porPasto;
+  const nC=filtrados.filter(a=>checked[a.id]).length,ti=TM.find(t=>t.v===tipo)||TM[0];
+  const toggle=id=>setChecked(c=>({...c,[id]:!c[id]}));
+  const checkAll=()=>{const n={...checked};filtrados.forEach(a=>n[a.id]=true);setChecked(n);};
+  const uncheckAll=()=>{const n={...checked};filtrados.forEach(a=>delete n[a.id]);setChecked(n);};
+  const salvar=()=>{const m=filtrados.filter(a=>checked[a.id]);if(!m.length)return;onSalvar({id:Date.now(),tipoManejo:tipo,nomeManejo:tipo==='outro'?(nomeC||'Personalizado'):ti.l,animaisIds:m.map(a=>a.id),animaisIdents:m.map(a=>a.ident),dose,data,obs});setSalvo(true);setTimeout(()=>onFechar(),1100);};
+  const cI={Boi:'🐂',Vaca:'🐄',Novilha:'🐄',Bezerro:'🐮',Touro:'🐂'};
+  return <div style={{position:'fixed',inset:0,zIndex:2000,display:'flex',flexDirection:'column',background:T.bg}}>
+    <div style={{background:`linear-gradient(135deg,${T.gDark},${T.green})`,color:'#FFF',padding:'13px 15px',flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div><div style={{fontWeight:800,fontSize:16}}>🏚️ Ferramenta de Curral</div><div style={{fontSize:12,opacity:0.85,marginTop:2}}>{ti.icon} {ti.l}{dose?` · ${dose}`:''} — <b style={{fontSize:15}}>{nC}</b> marcados</div></div>
+      <button onClick={onFechar} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'#FFF',borderRadius:9,padding:'7px 14px',fontWeight:700,cursor:'pointer'}}>✕</button>
+    </div>
+    <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+      <button onClick={()=>setCfg(o=>!o)} style={{width:'100%',background:'none',border:'none',padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',fontWeight:700,color:T.text,fontSize:13}}>⚙️ Configuração<span style={{fontSize:11,color:T.gray}}>{cfg?'▲':'▼'}</span></button>
+      {cfg&&<div style={{padding:'0 14px 12px'}}>
+        <div style={{display:'flex',gap:7,overflowX:'auto',paddingBottom:9,scrollbarWidth:'none',marginBottom:10}}>{TM.map(t=><button key={t.v} onClick={()=>setTipo(t.v)} style={{border:`2px solid ${tipo===t.v?t.c:T.border}`,borderRadius:20,padding:'7px 13px',fontSize:12,fontWeight:700,cursor:'pointer',background:tipo===t.v?t.c+'18':T.card,color:tipo===t.v?t.c:T.gray,whiteSpace:'nowrap',flexShrink:0}}>{t.icon} {t.l}</button>)}</div>
+        {tipo==='outro'&&<Inp label="Nome" value={nomeC} onChange={setNomeC} placeholder="Ex: Brucelose..."/>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Inp label="Dose/Produto" value={dose} onChange={setDose} placeholder="5ml"/><Inp label="Data" value={data} onChange={setData} type="date"/></div>
+        <Inp label="Observações" value={obs} onChange={setObs} placeholder="Opcional..."/>
+        <div style={{display:'flex',gap:7,overflowX:'auto',scrollbarWidth:'none',paddingBottom:2}}>{[{id:'todos',nome:'🐄 Todos'},...pastos].map(p=><button key={String(p.id)} onClick={()=>setPF(String(p.id))} style={{border:'none',borderRadius:20,padding:'6px 13px',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,background:pF===String(p.id)?T.green:T.gPale,color:pF===String(p.id)?'#FFF':T.green}}>{p.nome}</button>)}</div>
+      </div>}
+    </div>
+    <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:'7px 13px',flexShrink:0}}>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar brinco..." style={{width:'100%',border:`1.5px solid ${T.border}`,borderRadius:9,padding:'9px 13px',fontSize:13,outline:'none',background:T.bg,color:T.text,marginBottom:7}}/>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:12,color:T.gray}}>{filtrados.length} animais · {nC} marcados</span><div style={{display:'flex',gap:7}}><button onClick={checkAll} style={{background:T.gPale,border:'none',borderRadius:7,padding:'5px 12px',fontSize:11,fontWeight:700,color:T.green,cursor:'pointer'}}>✓ Todos</button><button onClick={uncheckAll} style={{background:'#FFE4E6',border:'none',borderRadius:7,padding:'5px 12px',fontSize:11,fontWeight:700,color:T.red,cursor:'pointer'}}>✕ Limpar</button></div></div>
+    </div>
+    <div style={{flex:1,overflowY:'auto',padding:'9px 13px'}}>
+      {filtrados.map(a=>{const ok=!!checked[a.id];const pt=pastos.find(p=>p.id===a.pastoId);return<div key={a.id} onClick={()=>toggle(a.id)} style={{background:ok?T.gPale:T.card,border:`2.5px solid ${ok?T.green:T.border}`,borderRadius:15,padding:'13px 15px',marginBottom:9,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',userSelect:'none',transition:'all 0.1s'}}>
+        <div style={{display:'flex',gap:12,alignItems:'center'}}><div style={{fontSize:30,flexShrink:0,opacity:ok?1:0.65}}>{cI[a.cat]||'🐄'}</div><div><div style={{fontWeight:800,fontSize:19,color:ok?T.green:T.text}}>{a.ident}</div><div style={{fontSize:11,color:T.gray}}>{a.cat} · Lote {a.lote}</div>{pt&&<div style={{fontSize:10,color:T.gLight}}>📍 {pt.nome}</div>}</div></div>
+        <div style={{width:38,height:38,borderRadius:9,border:`3px solid ${ok?T.green:T.border}`,background:ok?T.green:T.card,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{ok&&<span style={{color:'#FFF',fontSize:20,fontWeight:800,lineHeight:1}}>✓</span>}</div>
+      </div>;})}
+      <div style={{height:90}}/>
+    </div>
+    <div style={{background:T.card,padding:'11px 14px',borderTop:`1px solid ${T.border}`,flexShrink:0}}>
+      {salvo?<div style={{background:T.gPale,borderRadius:13,padding:15,textAlign:'center',fontWeight:700,color:T.green,fontSize:15}}>✅ Manejo salvo!</div>
+        :<button onClick={salvar} disabled={nC===0} style={{background:nC===0?T.border:ti.c,color:'#FFF',border:'none',borderRadius:13,padding:'15px',fontSize:15,fontWeight:700,width:'100%',cursor:nC===0?'not-allowed':'pointer'}}>{ti.icon} Salvar{nC>0?` — ${nC} animal${nC>1?'is':''}`:''}</button>}
+    </div>
+  </div>;
+}
+
+// ═══ MANEJO DETAIL PAGE ═══════════════════════════════════════════
+function ManejoDetailPage({manejo,onBack,animais,setManejos}){
+  const T=useT();
+  const ti=TM.find(t=>t.v===manejo.tipoManejo)||{icon:'💉',c:T.gray,l:'Manejo'};
+  const animaisManejo=animais.filter(a=>manejo.animaisIds?.includes(a.id));
+  const del=()=>{setManejos(m=>m.filter(x=>x.id!==manejo.id));onBack();};
+  return <DetailPage onBack={onBack} title={manejo.nomeManejo} icon={ti.icon} color={`linear-gradient(135deg,${T.gDark},${ti.c})`}>
+    <Section title="Detalhes do Manejo">
+      <Card ch={<><div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}><Badge l={ti.icon+' '+ti.l} c={ti.c} bg={ti.c+'18'}/><Badge l={`📅 ${fmtD(manejo.data)}`} c={T.gray} bg={T.bg}/></div><InfoRow label="Produto/Dose" value={manejo.dose||'—'}/><InfoRow label="Data" value={fmtD(manejo.data)}/><InfoRow label="Animais tratados" value={String(manejo.animaisIds?.length||0)} color={ti.c}/>{manejo.obs&&<div style={{marginTop:10,fontSize:13,color:T.gray}}>📝 {manejo.obs}</div>}</>}/>
+    </Section>
+    <Section title={`🐄 Animais tratados (${animaisManejo.length})`} empty={animaisManejo.length===0?'Nenhum animal encontrado':null}>
+      {animaisManejo.map(a=><Card key={a.id} ch={<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{a.ident}</div><div style={{fontSize:12,color:T.gray}}>{a.cat}{a.raca?` · ${a.raca}`:''}</div></div><span style={{fontSize:12,color:T.gray}}>{a.sexo==='M'?'♂':'♀'}</span></div>} style={{marginBottom:7}}/>)}
+      {manejo.animaisIdents?.filter(id=>!animaisManejo.find(a=>a.ident===id)).map((id,i)=><Card key={i} ch={<div><div style={{fontWeight:700,color:T.gray}}>{id}</div><div style={{fontSize:11,color:T.gray}}>Animal não encontrado</div></div>} style={{marginBottom:7}}/>)}
+    </Section>
+    <DeleteBtn label="este manejo" onConfirm={del}/>
+    <div style={{height:20}}/>
+  </DetailPage>;
+}
+
+// ═══ MOV DETAIL PAGE ══════════════════════════════════════════════
+function MovDetailPage({mov,onBack,setMovs}){
+  const T=useT();
+  const del=()=>{setMovs(m=>m.filter(x=>x.id!==mov.id));onBack();};
+  return <DetailPage onBack={onBack} title={`Movimentação: ${mov.ident}`} icon="🔄" color={`linear-gradient(135deg,${T.gDark},${T.orange})`}>
+    <Section title="Detalhes">
+      <Card ch={<><div style={{display:'flex',gap:7,alignItems:'center',marginBottom:14,background:T.bg,borderRadius:12,padding:'12px 14px'}}><div style={{flex:1,textAlign:'center'}}><div style={{fontSize:10,color:T.gray,fontWeight:700,marginBottom:4}}>ORIGEM</div><div style={{fontWeight:800,color:T.red,fontSize:14}}>📍 {mov.de}</div></div><div style={{fontSize:20,color:T.gray}}>→</div><div style={{flex:1,textAlign:'center'}}><div style={{fontSize:10,color:T.gray,fontWeight:700,marginBottom:4}}>DESTINO</div><div style={{fontWeight:800,color:T.green,fontSize:14}}>📍 {mov.para}</div></div></div><InfoRow label="Animal" value={mov.ident}/><InfoRow label="Data" value={fmtD(mov.data)}/>{mov.obs&&<div style={{marginTop:10,fontSize:13,color:T.orange}}>📝 {mov.obs}</div>}</>}/>
+    </Section>
+    <DeleteBtn label="esta movimentação" onConfirm={del}/>
+    <div style={{height:20}}/>
+  </DetailPage>;
+}
+
+// ═══ HISTÓRICO ════════════════════════════════════════════════════
+function HistoricoManejo({movs,setMovs,manejos,setManejos,animais,fin,setFin,pastos}){
+  const T=useT(),[filtro,setFiltro]=useState('todos'),[curral,setCurral]=useState(false);
+  const [detailManejo,setDetailManejo]=useState(null),[detailMov,setDetailMov]=useState(null),[detailFin,setDetailFin]=useState(null);
+  const timeline=useMemo(()=>{const e=[];movs.forEach(m=>e.push({...m,_tipo:'mov'}));manejos.forEach(m=>e.push({...m,_tipo:'manejo'}));animais.filter(a=>a.cat==='Bezerro'&&a.dataNasc).forEach(b=>e.push({id:`n${b.id}`,_tipo:'nascimento',data:b.dataNasc,ident:b.ident,sexo:b.sexo,maeId:b.maeId,raca:b.raca,peso:b.peso}));fin.forEach(f=>e.push({...f,_tipo:'fin'}));return e.sort((a,b)=>(b.data||'').localeCompare(a.data||''));},[movs,manejos,animais,fin]);
+  const lista=filtro==='todos'?timeline:timeline.filter(e=>e._tipo===filtro);
+  const FILTROS=[{v:'todos',l:'📋 Todos',c:T.green},{v:'manejo',l:'💉 Manejos',c:T.purple},{v:'mov',l:'🔄 Pastos',c:T.orange},{v:'nascimento',l:'🐮 Nascimentos',c:T.pinkDark},{v:'fin',l:'💰 Finanças',c:T.blue}];
+  const mes=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+  if(detailManejo)return<ManejoDetailPage manejo={detailManejo} onBack={()=>setDetailManejo(null)} animais={animais} setManejos={setManejos}/>;
+  if(detailMov)return<MovDetailPage mov={detailMov} onBack={()=>setDetailMov(null)} setMovs={setMovs}/>;
+  if(detailFin){
+    const isR=detailFin.tipo==='receita',cor=isR?T.green:T.red;
+    const del=()=>{setFin(f=>f.filter(x=>x.id!==detailFin.id));setDetailFin(null);};
+    return<DetailPage onBack={()=>setDetailFin(null)} title={isR?'Receita':'Despesa'} icon={isR?'▲':'▼'} color={`linear-gradient(135deg,${isR?T.gDark:'#7B1D1D'},${isR?T.green:T.red})`}>
+      <Section title="Detalhes"><Card ch={<><div style={{textAlign:'center',padding:'16px 0',marginBottom:12}}><div style={{fontSize:38,fontWeight:800,color:cor}}>{isR?'+':'-'}{fmtR(detailFin.valor)}</div><div style={{fontSize:13,color:T.gray,marginTop:4}}>{fmtD(detailFin.data)}</div></div><InfoRow label="Categoria" value={detailFin.cat}/><InfoRow label="Descrição" value={detailFin.desc||'—'}/><InfoRow label="Tipo" value={isR?'Receita':'Despesa'} color={cor}/></>}/></Section>
+      <DeleteBtn label="esta transação" onConfirm={del}/>
+      <div style={{height:20}}/>
+    </DetailPage>;
+  }
+  const renderCard=item=>{
+    const df=fmtD(item.data);const cs={background:T.card,borderRadius:13,padding:'11px 14px',marginBottom:9,boxShadow:`0 1px 5px ${T.shadow}`,cursor:'pointer'};
+    if(item._tipo==='mov')return<div key={item.id} onClick={()=>setDetailMov(item)} className="su" style={{...cs,borderLeft:`4px solid ${T.orange}`}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}><div style={{display:'flex',gap:7,alignItems:'center'}}><span style={{fontSize:18}}>🔄</span><div><div style={{fontWeight:700,color:T.text,fontSize:14}}>{item.ident}</div><div style={{fontSize:11,color:T.gray}}>Troca de pasto</div></div></div><span style={{fontSize:11,color:T.gray,background:T.bg,borderRadius:7,padding:'2px 7px',whiteSpace:'nowrap'}}>{df}</span></div><div style={{display:'flex',gap:5,alignItems:'center',fontSize:12,background:T.bg,borderRadius:7,padding:'6px 9px'}}><span style={{color:T.red,fontWeight:600}}>📍 {item.de}</span><span style={{color:T.gray}}>→</span><span style={{color:T.green,fontWeight:600}}>📍 {item.para}</span></div>{item.obs&&<div style={{fontSize:11,color:T.orange,marginTop:5}}>📝 {item.obs}</div>}</div>;
+    if(item._tipo==='manejo'){const ti=TM.find(t=>t.v===item.tipoManejo)||{c:T.gray,icon:'💉'};const n=item.animaisIds?.length||0;return<div key={item.id} onClick={()=>setDetailManejo(item)} className="su" style={{...cs,borderLeft:`4px solid ${ti.c}`}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:7}}><div style={{display:'flex',gap:7,alignItems:'center'}}><span style={{fontSize:18}}>{ti.icon}</span><div><div style={{fontWeight:700,color:T.text,fontSize:14}}>{item.nomeManejo}</div><div style={{fontSize:11,color:T.gray}}>{n} animal{n!==1?'is':''}{item.dose?` · ${item.dose}`:''}</div></div></div><span style={{fontSize:11,color:T.gray,background:T.bg,borderRadius:7,padding:'2px 7px',whiteSpace:'nowrap'}}>{df}</span></div>{item.animaisIdents?.length>0&&<div style={{fontSize:11,color:ti.c,background:ti.c+'12',borderRadius:7,padding:'5px 9px',fontWeight:600,lineHeight:1.5}}>{item.animaisIdents.slice(0,8).join(' · ')}{item.animaisIdents.length>8?` +${item.animaisIdents.length-8} mais`:''}</div>}{item.obs&&<div style={{fontSize:11,color:T.gray,marginTop:5}}>📝 {item.obs}</div>}</div>;}
+    if(item._tipo==='nascimento'){const mae=item.maeId?animais.find(a=>a.id===item.maeId):null,id=calcIdade(item.data);return<div key={item.id} className="su" style={{...cs,borderLeft:`4px solid ${T.pink}`,cursor:'default'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div style={{display:'flex',gap:7,alignItems:'center'}}><span style={{fontSize:18}}>🐮</span><div><div style={{fontWeight:700,color:T.text,fontSize:14}}>{item.ident} <span style={{fontSize:11,color:T.pinkDark}}>nasceu!</span></div><div style={{fontSize:11,color:T.gray}}>{item.sexo==='M'?'♂':'♀'}{item.raca?` · ${item.raca}`:''}{item.peso>0?` · ${item.peso}kg`:''}</div>{mae&&<div style={{fontSize:10,color:T.pinkDark,marginTop:1}}>🐄 {mae.ident}</div>}{id&&<div style={{fontSize:10,color:id.cor,marginTop:1,fontWeight:600}}>Hoje com {id.label}</div>}</div></div><span style={{fontSize:11,color:T.gray,background:T.bg,borderRadius:7,padding:'2px 7px',whiteSpace:'nowrap'}}>{df}</span></div></div>;}
+    if(item._tipo==='fin'){const isR=item.tipo==='receita',cor=isR?T.gLight:T.red;return<div key={item.id} onClick={()=>setDetailFin(item)} className="su" style={{...cs,borderLeft:`4px solid ${cor}`}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{display:'flex',gap:9,alignItems:'center'}}><div style={{width:32,height:32,borderRadius:7,background:isR?T.gPale:'#FFE4E6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}>{isR?'▲':'▼'}</div><div><div style={{fontWeight:700,color:T.text,fontSize:13}}>{item.cat}</div>{item.desc&&<div style={{fontSize:11,color:T.gray}}>{item.desc}</div>}</div></div><div style={{textAlign:'right',flexShrink:0}}><div style={{fontWeight:800,color:cor,fontSize:14}}>{isR?'+':'-'}{fmtR(item.valor)}</div><div style={{fontSize:10,color:T.gray}}>{df}</div></div></div></div>;}
+    return null;
+  };
+  return <div style={{paddingBottom:100}}>
+    {curral&&<CurralTool animais={animais} pastos={pastos} onSalvar={m=>{setManejos(x=>[...x,m]);setCurral(false);}} onFechar={()=>setCurral(false)}/>}
+    <PgH sub="Fazenda Santa Clara" title="Histórico de Manejo 📋"/>
+    <div style={{padding:'12px 14px 0'}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:7,marginBottom:12}}>
+        {[['Manejos',manejos.filter(m=>m.data?.startsWith(mes)).length,T.purple,T.purplePale],['Trocas',movs.filter(m=>m.data?.startsWith(mes)).length,T.orange,'#FFF3E0'],['Nascim.',animais.filter(a=>a.cat==='Bezerro'&&a.dataNasc?.startsWith(mes)).length,T.pinkDark,T.pinkPale]].map(([l,v,c,bg])=><div key={l} style={{background:bg,borderRadius:11,padding:'9px 6px',textAlign:'center'}}><div style={{fontSize:22,fontWeight:800,color:c}}>{v}</div><div style={{fontSize:10,color:c,fontWeight:700}}>{l}</div><div style={{fontSize:9,color:T.gray}}>este mês</div></div>)}
+      </div>
+      <button onClick={()=>setCurral(true)} style={{width:'100%',background:`linear-gradient(135deg,${T.gDark},${T.green})`,border:'none',borderRadius:15,padding:'14px 18px',color:'#FFF',fontWeight:700,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:11,marginBottom:14,boxShadow:'0 4px 12px rgba(45,106,79,0.35)'}}>
+        <span style={{fontSize:26}}>🏚️</span><div style={{textAlign:'left'}}><div>Abrir Ferramenta de Curral</div><div style={{fontSize:11,opacity:0.8,fontWeight:400,marginTop:1}}>Checklist por brinco para manejos</div></div>
+      </button>
+      <div style={{display:'flex',gap:7,overflowX:'auto',paddingBottom:11,scrollbarWidth:'none'}}>{FILTROS.map(f=><button key={f.v} onClick={()=>setFiltro(f.v)} style={{border:`2px solid ${filtro===f.v?f.c:'transparent'}`,borderRadius:20,padding:'7px 14px',fontSize:12,fontWeight:700,background:filtro===f.v?f.c+'18':T.card,color:filtro===f.v?f.c:T.gray,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.12s'}}>{f.l}{filtro===f.v&&lista.length>0?` (${lista.length})`:''}</button>)}</div>
+      {lista.length===0&&<div style={{textAlign:'center',padding:'44px 20px',color:T.gray}}><div style={{fontSize:44}}>📋</div><div style={{fontSize:15,fontWeight:600,marginTop:11}}>Nenhum registro nesta categoria</div></div>}
+      {lista.map(renderCard)}
+    </div>
+  </div>;
+}
+
+// ═══ CALENDÁRIO ═══════════════════════════════════════════════════
+function CalendarView({movs,manejos,animais,fin}){
+  const T=useT(),[cur,setCur]=useState(()=>new Date()),[sel,setSel]=useState(null);
+  const y=cur.getFullYear(),m=cur.getMonth(),firstDow=new Date(y,m,1).getDay(),daysInM=new Date(y,m+1,0).getDate();
+  const isoP=`${y}-${String(m+1).padStart(2,'0')}`;
+  const allEv=useMemo(()=>{const e=[];movs.forEach(x=>e.push({...x,_tipo:'mov'}));manejos.forEach(x=>e.push({...x,_tipo:'manejo'}));animais.filter(a=>a.cat==='Bezerro'&&a.dataNasc).forEach(b=>e.push({id:`n${b.id}`,data:b.dataNasc,ident:b.ident,_tipo:'nasc'}));fin.forEach(f=>e.push({...f,_tipo:'fin'}));return e;},[movs,manejos,animais,fin]);
+  const byDate=useMemo(()=>{const map={};allEv.forEach(e=>{if(!e.data)return;if(!map[e.data])map[e.data]=[];map[e.data].push(e);});return map;},[allEv]);
+  const selKey=sel?`${isoP}-${String(sel).padStart(2,'0')}`:null;
+  const selEvs=selKey?(byDate[selKey]||[]):[];
+  const tipoCor={mov:T.orange,manejo:T.purple,nasc:T.pink,fin:T.blue};
+  const tipoIcon={mov:'🔄',manejo:'💉',nasc:'🐮',fin:'💰'};
+  return <div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+      <button onClick={()=>setCur(d=>new Date(d.getFullYear(),d.getMonth()-1))} style={{background:T.bg,border:'none',borderRadius:9,width:36,height:36,fontSize:18,cursor:'pointer',color:T.text,display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>
+      <div style={{fontWeight:800,color:T.text,fontSize:15}}>{MESES[m]} {y}</div>
+      <button onClick={()=>setCur(d=>new Date(d.getFullYear(),d.getMonth()+1))} style={{background:T.bg,border:'none',borderRadius:9,width:36,height:36,fontSize:18,cursor:'pointer',color:T.text,display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',textAlign:'center',marginBottom:6}}>{['D','S','T','Q','Q','S','S'].map((d,i)=><div key={i} style={{fontSize:10,fontWeight:700,color:T.gray,paddingBottom:4}}>{d}</div>)}</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+      {Array.from({length:firstDow}).map((_,i)=><div key={`e${i}`}/>)}
+      {Array.from({length:daysInM}).map((_,i)=>{const day=i+1,key=`${isoP}-${String(day).padStart(2,'0')}`,evs=byDate[key]||[];const isToday=key===TODAY,isSel=sel===day;return<div key={day} onClick={()=>setSel(isSel?null:day)} style={{borderRadius:9,padding:'5px 2px',textAlign:'center',cursor:'pointer',background:isSel?T.green:isToday?T.gPale:'transparent',border:`1.5px solid ${isSel?T.green:isToday?T.gLight:'transparent'}`,minHeight:42}}><div style={{fontSize:12,fontWeight:isToday?800:400,color:isSel?'#FFF':T.text}}>{day}</div><div style={{display:'flex',justifyContent:'center',gap:2,marginTop:2,flexWrap:'wrap'}}>{[...new Set(evs.map(e=>e._tipo))].slice(0,3).map(t=><div key={t} style={{width:5,height:5,borderRadius:'50%',background:tipoCor[t]||T.gray}}/>)}</div></div>;})}
+    </div>
+    {sel&&<div style={{marginTop:14}}><div style={{fontWeight:700,color:T.text,marginBottom:9}}>📅 {String(sel).padStart(2,'0')}/{String(m+1).padStart(2,'0')}/{y}</div>{selEvs.length===0&&<div style={{color:T.gray,fontSize:12,textAlign:'center',padding:14}}>Nenhum evento</div>}{selEvs.map((e,i)=><div key={i} style={{background:T.bg,borderRadius:11,padding:'9px 13px',marginBottom:7,display:'flex',gap:9,alignItems:'center'}}><div style={{width:30,height:30,borderRadius:7,background:(tipoCor[e._tipo]||T.gray)+'1a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>{tipoIcon[e._tipo]||'•'}</div><div style={{flex:1}}><div style={{fontWeight:600,color:T.text,fontSize:13}}>{e.ident||e.nomeManejo||e.cat||e._tipo}</div><div style={{fontSize:11,color:T.gray}}>{e.de&&e.para?`${e.de} → ${e.para}`:e.desc||e.dose||''}</div></div>{e.valor&&<div style={{fontWeight:700,color:e.tipo==='receita'?T.gLight:T.red,fontSize:13}}>{e.tipo==='receita'?'+':'-'}{fmtR(e.valor)}</div>}</div>)}</div>}
+  </div>;
+}
+
+// ═══ CONFIGURAÇÕES ════════════════════════════════════════════════
+function Settings({dark,setDark,onReset,onClose,movs,manejos,animais,fin,pastos,sal}){
+  const T=useT(),[confirmReset,setCR]=useState(false),[aba,setAba]=useState('geral');
+  const allData={pastos,animais,fin,movs,manejos,sal};
+  const handleReset=()=>{dbReset();onReset();setCR(false);};
+  return <div style={{paddingBottom:100}}>
+    <div style={{background:`linear-gradient(135deg,${T.gDark},${T.green})`,padding:'20px 20px 28px',display:'flex',alignItems:'center',gap:12}}>
+      <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'#FFF',borderRadius:10,padding:'8px 14px',fontWeight:700,cursor:'pointer',fontSize:16}}>‹</button>
+      <div style={{color:'#FFF',fontSize:22,fontWeight:800}}>Configurações ⚙️</div>
+    </div>
+    <div style={{display:'flex',background:T.gDark}}>{[['geral','⚙️ Geral'],['historico','📅 Histórico']].map(([id,lbl])=><button key={id} onClick={()=>setAba(id)} style={{flex:1,border:'none',background:'none',color:aba===id?'#FFF':'rgba(255,255,255,0.45)',fontWeight:700,fontSize:13,padding:'11px 0',cursor:'pointer',borderBottom:aba===id?'3px solid #FFF':'3px solid transparent'}}>{lbl}</button>)}</div>
+    <div style={{padding:'16px 16px 0'}}>
+      {aba==='geral'&&<>
+        <Card ch={<><div style={{fontWeight:700,color:T.text,marginBottom:4}}>🎨 Aparência</div><Toggle value={dark} onChange={setDark} label="Modo Escuro" sub="Interface adaptada para uso noturno"/></>}/>
+        <Card ch={<>
+          <div style={{fontWeight:700,color:T.text,marginBottom:4}}>💾 Dados</div>
+          <div style={{fontSize:12,color:T.gray,marginBottom:14,lineHeight:1.6}}>Dados salvos localmente no dispositivo. Exporte regularmente para backup.</div>
+          <Btn l="📤 Exportar Backup (JSON)" color={T.blue} onClick={()=>dbExport(allData)} style={{marginBottom:10}}/>
+          {!confirmReset?<Btn l="🗑️ Resetar Todos os Dados" color={T.red} onClick={()=>setCR(true)}/>
+            :<div style={{background:'#FFE4E6',borderRadius:12,padding:14,marginTop:4}}>
+              <div style={{fontWeight:700,color:T.red,marginBottom:10,fontSize:15}}>⚠️ Confirmar reset?</div>
+              <div style={{fontSize:13,color:T.text,marginBottom:14}}>Todos os dados serão apagados permanentemente.</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <button onClick={()=>setCR(false)} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 0',fontWeight:700,cursor:'pointer',color:T.gray,fontSize:14}}>Cancelar</button>
+                <button onClick={handleReset} style={{background:T.red,border:'none',borderRadius:10,padding:'12px 0',fontWeight:700,cursor:'pointer',color:'#FFF',fontSize:14}}>🗑️ Sim, apagar</button>
+              </div>
+            </div>}
+        </>}/>
+        <Card ch={<><div style={{fontWeight:700,color:T.text,marginBottom:8}}>ℹ️ Sobre</div><div style={{fontSize:13,color:T.gray,lineHeight:1.7}}>AgroGestão v9<br/>App offline para gestão de fazendas.<br/>Baependi, MG — Open-Meteo · Satélite ESRI.</div></>}/>
+      </>}
+      {aba==='historico'&&<>
+        <div style={{fontWeight:700,color:T.text,marginBottom:12,fontSize:16}}>📅 Calendário de Eventos</div>
+        <Card ch={<CalendarView movs={movs} manejos={manejos} animais={animais} fin={fin}/>}/>
+      </>}
+    </div>
+  </div>;
+}
+
+// ═══ APP ══════════════════════════════════════════════════════════
+function App(){
+  const [dark,setDark]=useState(()=>dbGet('cfg')?.dark||false);
+  const T=dark?DARK:LIGHT;
+  useEffect(()=>{dbSet('cfg',{dark});document.body.style.background=T.bg;},[dark,T.bg]);
+  const [page,setPage]=useState('home'),[globalAction,setGA]=useState(null);
+  const [pastos,setP]=useState(()=>dbGet('pastos')||D_PASTOS);
+  const [animais,setA]=useState(()=>dbGet('animais')||D_ANIMAIS);
+  const [fin,setF]=useState(()=>dbGet('fin')||D_FIN);
+  const [movs,setMv]=useState(()=>dbGet('movs')||D_MOVS);
+  const [sal,setSl]=useState(()=>dbGet('sal')||D_SAL);
+  const [manejos,setMj]=useState(()=>dbGet('manejos')||D_MANEJOS);
+  const mk=(k,s)=>fn=>s(prev=>{const n=typeof fn==='function'?fn(prev):fn;dbSet(k,n);return n;});
+  const setPastos=mk('pastos',setP),setAnimais=mk('animais',setA),setFin=mk('fin',setF),setMovs=mk('movs',setMv),setSal=mk('sal',setSl),setManejos=mk('manejos',setMj);
+  const handleReset=()=>{setP(D_PASTOS);setA(D_ANIMAIS);setF(D_FIN);setMv(D_MOVS);setSl(D_SAL);setMj(D_MANEJOS);dbSet('pastos',D_PASTOS);dbSet('animais',D_ANIMAIS);dbSet('fin',D_FIN);dbSet('movs',D_MOVS);dbSet('sal',D_SAL);dbSet('manejos',D_MANEJOS);setPage('home');};
+  const bezNovos=animais.filter(a=>a.status==='ativo'&&a.cat==='Bezerro'&&a.dataNasc&&calcIdade(a.dataNasc)?.dias<7).length;
+  const nav=[{id:'home',icon:'🏠',label:'Home'},{id:'pastos',icon:'🌿',label:'Pastos'},{id:'animais',icon:'🐄',label:'Animais'},{id:'financeiro',icon:'💰',label:'Caixa'},{id:'historico',icon:'📋',label:'Manejo'}];
+  return <TC.Provider value={T}>
+    <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",background:T.bg,minHeight:'100vh',maxWidth:500,margin:'0 auto',position:'relative',overflowX:'hidden'}}>
+      {page==='home'       &&<Dashboard pastos={pastos} animais={animais} fin={fin} sal={sal} onAction={a=>a==='settings'?setPage('settings'):setGA(a)}/>}
+      {page==='pastos'     &&<Pastos pastos={pastos} setPastos={setPastos} animais={animais} sal={sal} setSal={setSal} manejos={manejos} movs={movs}/>}
+      {page==='animais'    &&<Animais animais={animais} setAnimais={setAnimais} pastos={pastos} movs={movs} setMovs={setMovs} manejos={manejos}/>}
+      {page==='financeiro' &&<Financeiro fin={fin} setFin={setFin}/>}
+      {page==='historico'  &&<HistoricoManejo movs={movs} setMovs={setMovs} manejos={manejos} setManejos={setManejos} animais={animais} fin={fin} setFin={setFin} pastos={pastos}/>}
+      {page==='settings'   &&<Settings dark={dark} setDark={v=>{setDark(v);dbSet('cfg',{dark:v});}} onReset={handleReset} onClose={()=>setPage('home')} movs={movs} manejos={manejos} animais={animais} fin={fin} pastos={pastos} sal={sal}/>}
+      {globalAction&&<GlobalModals action={globalAction} onClose={()=>setGA(null)} pastos={pastos} animais={animais} setAnimais={setAnimais} setSal={setSal} setMovs={setMovs}/>}
+      {page!=='settings'&&<div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:500,background:T.card,borderTop:`1px solid ${T.border}`,display:'flex',zIndex:300,boxShadow:`0 -4px 20px ${T.shadow}`}}>
+        {nav.map(n=><button key={n.id} onClick={()=>setPage(n.id)} style={{flex:1,border:'none',background:'none',padding:'10px 0 8px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,position:'relative'}}>
+          {page===n.id&&<div style={{position:'absolute',top:0,left:'20%',right:'20%',height:3,background:T.green,borderRadius:'0 0 3px 3px'}}/>}
+          {n.id==='animais'&&bezNovos>0&&<div style={{position:'absolute',top:4,right:'18%',background:T.pink,color:'#FFF',borderRadius:20,width:16,height:16,fontSize:9,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center'}}>{bezNovos}</div>}
+          <span style={{fontSize:20}}>{n.icon}</span>
+          <span style={{fontSize:10,fontWeight:600,color:page===n.id?T.green:T.gray}}>{n.label}</span>
+        </button>)}
+      </div>}
+    </div>
+  </TC.Provider>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
