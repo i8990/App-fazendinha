@@ -50,31 +50,93 @@ const PE={bom:{l:'Bom',c:'#52B788'},medio:{l:'Médio',c:'#E9C46A'},ruim:{l:'Ruim
 const TM=[{v:'ivermectina',l:'Ivermectina',icon:'💉',c:'#7B61FF'},{v:'fio_do_lombo',l:'Fio do Lombo',icon:'🩺',c:'#E63946'},{v:'antibiotico',l:'Antibiótico',icon:'💊',c:'#F4A261'},{v:'vacina',l:'Vacina',icon:'🩹',c:'#52B788'},{v:'vermifugo',l:'Vermífugo',icon:'🔬',c:'#0077B6'},{v:'outro',l:'Outro',icon:'✚',c:'#6B7280'}];
 const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// ═══ STORAGE (Supabase — fonte única de verdade) ══════════════════
-const DB_TABLE='ag_store';
+// ═══ STORAGE — Supabase/app_state (fonte única de verdade) ════════
+//
+//  Tabela usada: app_state
+//  Schema esperado:
+//    key         text PRIMARY KEY
+//    value       jsonb NOT NULL
+//    updated_at  timestamptz DEFAULT now()
+//
+//  RLS mínimo necessário (rodar no SQL Editor do Supabase):
+//    ALTER TABLE app_state ENABLE ROW LEVEL SECURITY;
+//    CREATE POLICY "anon_all" ON app_state FOR ALL USING (true) WITH CHECK (true);
+//
+const DB_TABLE = 'app_state';
 
-// Persiste no Supabase (fire-and-forget, não bloqueia a UI)
-const dbSet=(k,v)=>{
-  supabaseClient.from(DB_TABLE).upsert({key:k,value:v},{onConflict:'key'})
-    .then(({error})=>{if(error)console.warn('dbSet ['+k+']:', error.message);});
+// ── Primitiva de escrita ─────────────────────────────────────────
+// fire-and-forget: não bloqueia a UI, mas loga erros detalhados
+const dbSet = (k, v) => {
+  supabaseClient
+    .from(DB_TABLE)
+    .upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .then(({ error }) => {
+      if (error) {
+        console.error(`❌ dbSet [${k}] falhou:`, error.code, error.message, error.hint || '');
+      } else {
+        console.log(`💾 dbSet [${k}] OK`);
+      }
+    });
 };
 
-// Lê do Supabase de forma assíncrona; retorna null se não encontrar
-const dbLoad=async(k)=>{
-  try{
-    const{data,error}=await supabaseClient.from(DB_TABLE).select('value').eq('key',k).maybeSingle();
-    if(!error&&data!=null)return data.value;
-  }catch(e){console.warn('dbLoad ['+k+']:', e.message);}
-  return null;
+// ── Primitiva de leitura ─────────────────────────────────────────
+const dbLoad = async (k) => {
+  try {
+    const { data, error } = await supabaseClient
+      .from(DB_TABLE)
+      .select('value')
+      .eq('key', k)
+      .maybeSingle();
+    if (error) {
+      console.error(`❌ dbLoad [${k}] erro:`, error.code, error.message, error.hint || '');
+      return null;
+    }
+    return data != null ? data.value : null;
+  } catch (e) {
+    console.error(`❌ dbLoad [${k}] exceção:`, e.message);
+    return null;
+  }
 };
 
-// Apaga todas as chaves do Supabase (reset completo)
-const dbReset=()=>{
-  supabaseClient.from(DB_TABLE).delete().in('key',['pastos','animais','fin','movs','sal','manejos','cfg'])
-    .then(({error})=>{if(error)console.warn('dbReset:', error.message);});
+// ── Reset completo ───────────────────────────────────────────────
+const dbReset = () => {
+  const KEYS = ['pastos', 'animais', 'fin', 'movs', 'sal', 'manejos', 'cfg'];
+  supabaseClient
+    .from(DB_TABLE)
+    .delete()
+    .in('key', KEYS)
+    .then(({ error }) => {
+      if (error) console.error('❌ dbReset falhou:', error.message);
+      else console.log('🗑️ dbReset OK');
+    });
 };
 
-const dbExport=(data)=>{const b=new Blob([JSON.stringify({v:'9',ts:new Date().toISOString(),data},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`agrogestao-v9-${TODAY}.json`;a.click();};
+// ── API nomeada por entidade ─────────────────────────────────────
+// Cada função deixa claro O QUE está sendo salvo/carregado.
+// Fácil de substituir por tabelas individuais no futuro.
+const savePastos   = (v) => dbSet('pastos',  v);
+const saveAnimais  = (v) => dbSet('animais', v);
+const saveFin      = (v) => dbSet('fin',     v);
+const saveMovs     = (v) => dbSet('movs',    v);
+const saveSal      = (v) => dbSet('sal',     v);
+const saveManejos  = (v) => dbSet('manejos', v);
+const saveCfg      = (v) => dbSet('cfg',     v);
+
+const loadPastos   = () => dbLoad('pastos');
+const loadAnimais  = () => dbLoad('animais');
+const loadFin      = () => dbLoad('fin');
+const loadMovs     = () => dbLoad('movs');
+const loadSal      = () => dbLoad('sal');
+const loadManejos  = () => dbLoad('manejos');
+const loadCfg      = () => dbLoad('cfg');
+
+const dbExport = (data) => {
+  const b = new Blob([JSON.stringify({ v:'9', ts: new Date().toISOString(), data }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);
+  a.download = `agrogestao-v9-${TODAY}.json`;
+  a.click();
+};
 
 // ═══ UTILS ════════════════════════════════════════════════════════
 const TODAY=new Date().toISOString().slice(0,10);
@@ -785,19 +847,42 @@ function App(){
   const [movs,setMv]=useState([]);
   const [sal,setSl]=useState([]);
   const [manejos,setMj]=useState([]);
-  const mk=(k,s)=>fn=>s(prev=>{const n=typeof fn==='function'?fn(prev):fn;dbSet(k,n);return n;});
+  // mk: envolve setState para chamar a função nomeada de save automaticamente
+  const SAVERS = { pastos: savePastos, animais: saveAnimais, fin: saveFin, movs: saveMovs, sal: saveSal, manejos: saveManejos };
+  const mk=(k,s)=>fn=>s(prev=>{const n=typeof fn==='function'?fn(prev):fn;SAVERS[k]?.(n);return n;});
   const setPastos=mk('pastos',setP),setAnimais=mk('animais',setA),setFin=mk('fin',setF),setMovs=mk('movs',setMv),setSal=mk('sal',setSl),setManejos=mk('manejos',setMj);
   const handleReset=()=>{setP([]);setA([]);setF([]);setMv([]);setSl([]);setMj([]);dbReset();setPage('home');};
   useEffect(()=>{
     (async()=>{
       try{
-        const cfg=await dbLoad('cfg');
-        if(cfg?.dark!==undefined)setDark(cfg.dark);
-        const entries=[['pastos',setP],['animais',setA],['fin',setF],['movs',setMv],['sal',setSl],['manejos',setMj]];
-        for(const[k,setter]of entries){const v=await dbLoad(k);if(v!==null)setter(v);}
-        console.log('✅ Dados carregados do Supabase');
-      }catch(e){console.error('Erro ao carregar do Supabase:', e);}
-      finally{setLoading(false);}
+        // 1. Carrega configuração (dark mode)
+        const cfg = await loadCfg();
+        if(cfg?.dark !== undefined) setDark(cfg.dark);
+
+        // 2. Carrega cada entidade com sua função nomeada
+        const loaders = [
+          [loadPastos,  setP,  'pastos'],
+          [loadAnimais, setA,  'animais'],
+          [loadFin,     setF,  'fin'],
+          [loadMovs,    setMv, 'movs'],
+          [loadSal,     setSl, 'sal'],
+          [loadManejos, setMj, 'manejos'],
+        ];
+        for(const [loader, setter, name] of loaders){
+          const v = await loader();
+          if(v !== null){
+            setter(v);
+            console.log(`✅ ${name}: ${Array.isArray(v)?v.length+' registros':'OK'}`);
+          } else {
+            console.warn(`⚠️ ${name}: vazio ou não encontrado no banco`);
+          }
+        }
+        console.log('🌿 Sincronização completa');
+      }catch(e){
+        console.error('❌ Erro crítico ao carregar do Supabase:', e);
+      }finally{
+        setLoading(false);
+      }
     })();
   },[]);
   const bezNovos=animais.filter(a=>a.status==='ativo'&&a.cat==='Bezerro'&&a.dataNasc&&calcIdade(a.dataNasc)?.dias<7).length;
@@ -816,7 +901,7 @@ function App(){
       {page==='animais'    &&<Animais animais={animais} setAnimais={setAnimais} pastos={pastos} movs={movs} setMovs={setMovs} manejos={manejos}/>}
       {page==='financeiro' &&<Financeiro fin={fin} setFin={setFin}/>}
       {page==='historico'  &&<HistoricoManejo movs={movs} setMovs={setMovs} manejos={manejos} setManejos={setManejos} animais={animais} fin={fin} setFin={setFin} pastos={pastos}/>}
-      {page==='settings'   &&<Settings dark={dark} setDark={v=>{setDark(v);dbSet('cfg',{dark:v});}} onReset={handleReset} onClose={()=>setPage('home')} movs={movs} manejos={manejos} animais={animais} fin={fin} pastos={pastos} sal={sal}/>}
+      {page==='settings'   &&<Settings dark={dark} setDark={v=>{setDark(v);saveCfg({dark:v});}} onReset={handleReset} onClose={()=>setPage('home')} movs={movs} manejos={manejos} animais={animais} fin={fin} pastos={pastos} sal={sal}/>}
       {globalAction&&<GlobalModals action={globalAction} onClose={()=>setGA(null)} pastos={pastos} animais={animais} setAnimais={setAnimais} setSal={setSal} setMovs={setMovs}/>}
       {page!=='settings'&&<div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:500,background:T.card,borderTop:`1px solid ${T.border}`,display:'flex',zIndex:300,boxShadow:`0 -4px 20px ${T.shadow}`}}>
         {nav.map(n=><button key={n.id} onClick={()=>setPage(n.id)} style={{flex:1,border:'none',background:'none',padding:'10px 0 8px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,position:'relative'}}>
