@@ -50,35 +50,28 @@ const PE={bom:{l:'Bom',c:'#52B788'},medio:{l:'Médio',c:'#E9C46A'},ruim:{l:'Ruim
 const TM=[{v:'ivermectina',l:'Ivermectina',icon:'💉',c:'#7B61FF'},{v:'fio_do_lombo',l:'Fio do Lombo',icon:'🩺',c:'#E63946'},{v:'antibiotico',l:'Antibiótico',icon:'💊',c:'#F4A261'},{v:'vacina',l:'Vacina',icon:'🩹',c:'#52B788'},{v:'vermifugo',l:'Vermífugo',icon:'🔬',c:'#0077B6'},{v:'outro',l:'Outro',icon:'✚',c:'#6B7280'}];
 const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// ═══ STORAGE (localStorage + Supabase) ═══════════════════════════
-const PFX='ag9_';
+// ═══ STORAGE (Supabase — fonte única de verdade) ══════════════════
 const DB_TABLE='ag_store';
 
-// Leitura síncrona do cache local
-const dbGet=(k,fb)=>{try{const v=localStorage.getItem(PFX+k);return v?JSON.parse(v):fb}catch{return fb}};
-
-// Escrita: salva localmente E envia para o Supabase (fire-and-forget)
+// Persiste no Supabase (fire-and-forget, não bloqueia a UI)
 const dbSet=(k,v)=>{
-  try{localStorage.setItem(PFX+k,JSON.stringify(v));localStorage.setItem(PFX+k+'_bak',JSON.stringify(v));}catch{}
   supabaseClient.from(DB_TABLE).upsert({key:k,value:v},{onConflict:'key'})
-    .then(({error})=>{if(error)console.warn('Supabase write ['+k+']:', error.message)});
+    .then(({error})=>{if(error)console.warn('dbSet ['+k+']:', error.message);});
 };
 
-// Leitura assíncrona do Supabase (usada na inicialização do app)
-const dbLoad=async(k,fb)=>{
+// Lê do Supabase de forma assíncrona; retorna null se não encontrar
+const dbLoad=async(k)=>{
   try{
     const{data,error}=await supabaseClient.from(DB_TABLE).select('value').eq('key',k).maybeSingle();
-    if(!error&&data?.value){localStorage.setItem(PFX+k,JSON.stringify(data.value));return data.value;}
-  }catch(e){console.warn('Supabase read ['+k+']:', e.message);}
-  return dbGet(k,fb);
+    if(!error&&data!=null)return data.value;
+  }catch(e){console.warn('dbLoad ['+k+']:', e.message);}
+  return null;
 };
 
-// Reset: apaga do localStorage e do Supabase
+// Apaga todas as chaves do Supabase (reset completo)
 const dbReset=()=>{
-  const KEYS=['pastos','animais','fin','movs','sal','manejos','cfg'];
-  KEYS.forEach(k=>{localStorage.removeItem(PFX+k);localStorage.removeItem(PFX+k+'_bak');});
-  supabaseClient.from(DB_TABLE).delete().in('key',KEYS)
-    .then(({error})=>{if(error)console.warn('Supabase reset:', error.message)});
+  supabaseClient.from(DB_TABLE).delete().in('key',['pastos','animais','fin','movs','sal','manejos','cfg'])
+    .then(({error})=>{if(error)console.warn('dbReset:', error.message);});
 };
 
 const dbExport=(data)=>{const b=new Blob([JSON.stringify({v:'9',ts:new Date().toISOString(),data},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`agrogestao-v9-${TODAY}.json`;a.click();};
@@ -111,13 +104,7 @@ function calcSal(pid,n,regs,tx=225){
   return{kg,dias:cd>0?kg/cd:999,cd,alerta:kg<(cd*7)};
 }
 
-// ═══ DEMO DATA ════════════════════════════════════════════════════
-const D_PASTOS=[{id:1,nome:'Pasto Norte',tam:45,un:'ha',cap:80,estado:'bom',status:'ocupado',obs:'',taxaSal:225},{id:2,nome:'Pasto Sul',tam:30,un:'ha',cap:50,estado:'medio',status:'vazio',obs:'',taxaSal:225},{id:3,nome:'Pasto Leste',tam:55,un:'ha',cap:90,estado:'bom',status:'ocupado',obs:'Renovar cerca setor 3',taxaSal:225},{id:4,nome:'Pasto Oeste',tam:20,un:'ha',cap:30,estado:'ruim',status:'descanso',obs:'Em recuperação',taxaSal:225}];
-const D_ANIMAIS=[{id:1,ident:'BOI-001',cat:'Boi',raca:'Nelore',lote:'A',pastoId:1,status:'ativo',peso:480,obs:'',sexo:'M',dataNasc:'',maeId:null},{id:2,ident:'VACA-015',cat:'Vaca',raca:'Nelore',lote:'B',pastoId:3,status:'ativo',peso:380,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:3,ident:'BOI-022',cat:'Boi',raca:'Angus',lote:'A',pastoId:1,status:'ativo',peso:510,obs:'',sexo:'M',dataNasc:'',maeId:null},{id:4,ident:'NOVILHA-007',cat:'Novilha',raca:'Simental',lote:'C',pastoId:3,status:'ativo',peso:290,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:5,ident:'VACA-020',cat:'Vaca',raca:'Nelore',lote:'B',pastoId:1,status:'ativo',peso:395,obs:'',sexo:'F',dataNasc:'',maeId:null},{id:6,ident:'BEZ-001',cat:'Bezerro',raca:'Nelore',lote:'B',pastoId:1,status:'ativo',peso:42,obs:'',sexo:'M',dataNasc:sub(TODAY,5),maeId:2},{id:7,ident:'BEZ-002',cat:'Bezerro',raca:'Nelore',lote:'B',pastoId:3,status:'ativo',peso:38,obs:'',sexo:'F',dataNasc:sub(TODAY,45),maeId:4},{id:8,ident:'BEZ-003',cat:'Bezerro',raca:'Angus',lote:'A',pastoId:1,status:'ativo',peso:95,obs:'',sexo:'M',dataNasc:sub(TODAY,120),maeId:5}];
-const D_FIN=[{id:1,tipo:'receita',valor:15000,cat:'Venda de gado',desc:'Venda 3 bois',data:sub(TODAY,19)},{id:2,tipo:'despesa',valor:2500,cat:'Alimentação',desc:'Ração e mineral',data:sub(TODAY,14)},{id:3,tipo:'despesa',valor:800,cat:'Manutenção',desc:'Conserto de cerca',data:sub(TODAY,32)},{id:4,tipo:'receita',valor:3200,cat:'Leite',desc:'Venda mensal',data:sub(TODAY,33)}];
-const D_MOVS=[{id:1,ident:'BOI-001',de:'Pasto Sul',para:'Pasto Norte',data:sub(TODAY,6),obs:'Pasto sul lotado'},{id:2,ident:'VACA-020',de:'Pasto Leste',para:'Pasto Norte',data:sub(TODAY,15),obs:''}];
-const D_SAL=[{id:1,pastoId:1,data:sub(TODAY,14),sacos:3,obs:'Reposição mensal'},{id:2,pastoId:3,data:sub(TODAY,19),sacos:4,obs:''}];
-const D_MANEJOS=[{id:1,tipoManejo:'ivermectina',nomeManejo:'Ivermectina 1%',animaisIds:[1,3,5],animaisIdents:['BOI-001','BOI-022','VACA-020'],dose:'5ml',data:sub(TODAY,10),obs:'Mensal'},{id:2,tipoManejo:'vacina',nomeManejo:'Vacina Aftosa',animaisIds:[1,2,3,4],animaisIdents:['BOI-001','VACA-015','BOI-022','NOVILHA-007'],dose:'2ml',data:sub(TODAY,45),obs:'Semestral'}];
+// ═══ DEMO DATA (removido — dados vêm do Supabase) ════════════════
 
 // ═══ BASE UI ═════════════════════════════════════════════════════
 function Card({ch,style,onClick}){const T=useT();return <div onClick={onClick} style={{background:T.card,borderRadius:16,padding:16,boxShadow:`0 2px 8px ${T.shadow}`,marginBottom:12,cursor:onClick?'pointer':'default',...style}}>{ch}</div>;}
@@ -787,28 +774,41 @@ function Settings({dark,setDark,onReset,onClose,movs,manejos,animais,fin,pastos,
 
 // ═══ APP ══════════════════════════════════════════════════════════
 function App(){
-  const [dark,setDark]=useState(()=>dbGet('cfg')?.dark||false);
+  const [dark,setDark]=useState(false);
   const T=dark?DARK:LIGHT;
-  useEffect(()=>{dbSet('cfg',{dark});document.body.style.background=T.bg;},[dark,T.bg]);
+  useEffect(()=>{document.body.style.background=T.bg;},[T.bg]);
   const [page,setPage]=useState('home'),[globalAction,setGA]=useState(null);
-  const [pastos,setP]=useState(()=>dbGet('pastos')||D_PASTOS);
-  const [animais,setA]=useState(()=>dbGet('animais')||D_ANIMAIS);
-  const [fin,setF]=useState(()=>dbGet('fin')||D_FIN);
-  const [movs,setMv]=useState(()=>dbGet('movs')||D_MOVS);
-  const [sal,setSl]=useState(()=>dbGet('sal')||D_SAL);
-  const [manejos,setMj]=useState(()=>dbGet('manejos')||D_MANEJOS);
+  const [loading,setLoading]=useState(true);
+  const [pastos,setP]=useState([]);
+  const [animais,setA]=useState([]);
+  const [fin,setF]=useState([]);
+  const [movs,setMv]=useState([]);
+  const [sal,setSl]=useState([]);
+  const [manejos,setMj]=useState([]);
   const mk=(k,s)=>fn=>s(prev=>{const n=typeof fn==='function'?fn(prev):fn;dbSet(k,n);return n;});
   const setPastos=mk('pastos',setP),setAnimais=mk('animais',setA),setFin=mk('fin',setF),setMovs=mk('movs',setMv),setSal=mk('sal',setSl),setManejos=mk('manejos',setMj);
-  const handleReset=()=>{setP(D_PASTOS);setA(D_ANIMAIS);setF(D_FIN);setMv(D_MOVS);setSl(D_SAL);setMj(D_MANEJOS);dbSet('pastos',D_PASTOS);dbSet('animais',D_ANIMAIS);dbSet('fin',D_FIN);dbSet('movs',D_MOVS);dbSet('sal',D_SAL);dbSet('manejos',D_MANEJOS);setPage('home');};
+  const handleReset=()=>{setP([]);setA([]);setF([]);setMv([]);setSl([]);setMj([]);dbReset();setPage('home');};
   useEffect(()=>{
     (async()=>{
-      const entries=[['pastos',setP,D_PASTOS],['animais',setA,D_ANIMAIS],['fin',setF,D_FIN],['movs',setMv,D_MOVS],['sal',setSl,D_SAL],['manejos',setMj,D_MANEJOS]];
-      for(const[k,setter,def]of entries){const v=await dbLoad(k,def);setter(v&&(Array.isArray(v)?v.length>0:true)?v:def);}
-      console.log('Dados carregados do Supabase ✓');
+      try{
+        const cfg=await dbLoad('cfg');
+        if(cfg?.dark!==undefined)setDark(cfg.dark);
+        const entries=[['pastos',setP],['animais',setA],['fin',setF],['movs',setMv],['sal',setSl],['manejos',setMj]];
+        for(const[k,setter]of entries){const v=await dbLoad(k);if(v!==null)setter(v);}
+        console.log('✅ Dados carregados do Supabase');
+      }catch(e){console.error('Erro ao carregar do Supabase:', e);}
+      finally{setLoading(false);}
     })();
   },[]);
   const bezNovos=animais.filter(a=>a.status==='ativo'&&a.cat==='Bezerro'&&a.dataNasc&&calcIdade(a.dataNasc)?.dias<7).length;
   const nav=[{id:'home',icon:'🏠',label:'Home'},{id:'pastos',icon:'🌿',label:'Pastos'},{id:'animais',icon:'🐄',label:'Animais'},{id:'financeiro',icon:'💰',label:'Caixa'},{id:'historico',icon:'📋',label:'Manejo'}];
+  if(loading)return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:`linear-gradient(135deg,#1B4332,#2D6A4F)`,gap:16}}>
+    <div style={{fontSize:48}}>🌿</div>
+    <div style={{color:'#FFF',fontSize:20,fontWeight:800}}>Fazendinha</div>
+    <div style={{color:'rgba(255,255,255,0.6)',fontSize:13}}>Sincronizando com o banco...</div>
+    <div style={{width:40,height:40,border:'4px solid rgba(255,255,255,0.2)',borderTop:'4px solid #FFF',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+    <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  </div>;
   return <TC.Provider value={T}>
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",background:T.bg,minHeight:'100vh',maxWidth:500,margin:'0 auto',position:'relative',overflowX:'hidden'}}>
       {page==='home'       &&<Dashboard pastos={pastos} animais={animais} fin={fin} sal={sal} onAction={a=>a==='settings'?setPage('settings'):setGA(a)}/>}
