@@ -358,6 +358,12 @@ function Dashboard({pastos,animais,fin,sal,onAction}){
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:14}}>
         {[{icon:'🧂',label:'Registrar Sal',sub:'Repor mineral',c:T.orange,bg:'#FFF3E0',a:'sal'},{icon:'🐮',label:'Nascimento',sub:'Novo bezerro',c:T.pinkDark,bg:T.pinkPale,a:'nascimento'},{icon:'🌿',label:'Mover Animal',sub:'Trocar pasto',c:T.green,bg:T.gPale,a:'pasto'}].map(({icon,label,sub,c,bg,a})=><button key={a} onClick={()=>onAction(a)} style={{background:bg,border:`2px solid ${c}28`,borderRadius:16,padding:'14px 6px 12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:5,minHeight:96}}><span style={{fontSize:30,lineHeight:1}}>{icon}</span><span style={{fontSize:12,fontWeight:800,color:c,textAlign:'center',lineHeight:1.2}}>{label}</span><span style={{fontSize:10,color:c+'99',textAlign:'center'}}>{sub}</span></button>)}
       </div>
+      <button onClick={()=>onAction('ferramentas')} style={{width:'100%',background:T.card,border:`2px solid ${T.purple}28`,borderRadius:16,padding:'13px 16px',cursor:'pointer',display:'flex',alignItems:'center',gap:12,marginBottom:14,boxShadow:`0 2px 8px ${T.shadow}`}}>
+        <span style={{fontSize:28}}>🧮</span>
+        <div style={{textAlign:'left'}}><div style={{fontSize:14,fontWeight:800,color:T.purple}}>FERRAMENTAS</div><div style={{fontSize:11,color:T.gray}}>Calculadoras de UA, lotação, sal e GMD</div></div>
+        <span style={{marginLeft:'auto',color:T.gray,fontSize:18}}>›</span>
+      </button>
+      </div>
       {alertas.length>0&&<div style={{background:T.card,borderRadius:14,padding:14,marginBottom:12,border:`1.5px solid ${T.orange}30`,boxShadow:`0 2px 8px ${T.shadow}`}}><div style={{fontWeight:800,color:T.orange,fontSize:13,marginBottom:8}}>⚠️ Alertas da fazenda</div>{alertas.map((a,i)=><div key={i} style={{fontSize:13,color:T.text,padding:'5px 0',borderBottom:i<alertas.length-1?`1px solid ${T.border}`:'none'}}>{a.icon} {a.msg}</div>)}</div>}
       {bezNovos.length>0&&<Card ch={<><div style={{fontWeight:800,color:T.pinkDark,marginBottom:7}}>🐮 Nascimentos recentes</div>{bezNovos.map(b=>{const id=calcIdade(b.dataNasc);return<div key={b.id} style={{fontSize:13,marginBottom:3}}>• <b>{b.ident}</b> — {id?.label} · {b.sexo==='M'?'♂':'♀'}</div>;})}</>} style={{border:`2px solid ${T.pink}`,background:T.pinkPale}}/>}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
@@ -382,6 +388,9 @@ function PastoDetailPage({pasto,onBack,animais,sal,setSal,manejos,movs,setPastos
   const st=PS[pasto.status]||{},es=PE[pasto.estado]||{};
   const deletePasto=()=>{setPastos(p=>p.filter(x=>x.id!==pasto.id));onBack();};
   const deleteSal=id=>setSal(s=>s.filter(x=>x.id!==id));
+  const [editM,setEditM]=useState(false);
+  const [ef,setEf]=useState({...pasto});
+  const salvarEditPasto=()=>{if(!ef.nome?.trim())return;setPastos(p=>p.map(x=>x.id===pasto.id?{...ef,tam:+ef.tam||0,cap:+ef.cap||0,taxaSal:+ef.taxaSal||225}:x));setEditM(false);onBack();};
   return <DetailPage onBack={onBack} title={pasto.nome} icon="🌿" color={`linear-gradient(135deg,${T.gDark},${T.green})`}>
     <Section title="Informações do Pasto">
       <Card ch={<>
@@ -414,8 +423,19 @@ function PastoDetailPage({pasto,onBack,animais,sal,setSal,manejos,movs,setPastos
       {[...manejosDoPasto].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,5).map(m=>{const ti=TM.find(t=>t.v===m.tipoManejo)||{icon:'💉',c:T.gray};return<Card key={m.id} ch={<><div style={{fontWeight:700,color:T.text}}>{ti.icon} {m.nomeManejo}</div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(m.data)}{m.dose?` · ${m.dose}`:''}</div></>} style={{marginBottom:8}}/>;
       })}
     </Section>
+    <Btn l="✏️ Editar Pasto" color={T.blue} onClick={()=>{setEf({...pasto});setEditM(true);}} style={{marginBottom:10}}/>
     <DeleteBtn label="este pasto" onConfirm={deletePasto}/>
     <div style={{height:20}}/>
+    <Modal open={editM} onClose={()=>setEditM(false)} title="✏️ Editar Pasto">
+      <Inp label="Nome *" value={ef.nome} onChange={v=>setEf(e=>({...e,nome:v}))}/>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}><Inp label="Tamanho" value={ef.tam} onChange={v=>setEf(e=>({...e,tam:v}))} type="number"/><Sel label="Unidade" value={ef.un} onChange={v=>setEf(e=>({...e,un:v}))} opts={[{v:'ha',l:'ha'},{v:'ac',l:'ac'},{v:'m²',l:'m²'}]}/></div>
+      <Inp label="Capacidade (animais)" value={ef.cap} onChange={v=>setEf(e=>({...e,cap:v}))} type="number"/>
+      <Sel label="Status" value={ef.status} onChange={v=>setEf(e=>({...e,status:v}))} opts={Object.entries(PS).map(([k,v])=>({v:k,l:v.l}))}/>
+      <Sel label="Estado" value={ef.estado} onChange={v=>setEf(e=>({...e,estado:v}))} opts={Object.entries(PE).map(([k,v])=>({v:k,l:v.l}))}/>
+      <Inp label="Taxa de sal (g/animal/dia)" value={ef.taxaSal||225} onChange={v=>setEf(e=>({...e,taxaSal:v}))} type="number"/>
+      <Inp label="Observações" value={ef.obs} onChange={v=>setEf(e=>({...e,obs:v}))} placeholder="Opcional..."/>
+      <Btn l="💾 Salvar Alterações" onClick={salvarEditPasto} dis={!ef.nome?.trim()}/>
+    </Modal>
   </DetailPage>;
 }
 
@@ -487,9 +507,12 @@ function AnimalDetailPage({animal,onBack,animais,pastos,movs,manejos,setAnimais,
   const manejoAnimal=[...manejos.filter(m=>m.animaisIds?.includes(animal.id))].sort((a,b)=>b.data.localeCompare(a.data));
   const filhos=animais.filter(a=>a.maeId===animal.id);
   const [moveM,setMoveM]=useState(false),[dest,setDest]=useState(''),[obsM,setObsM]=useState('');
+  const [editM,setEditM]=useState(false),[ef,setEf]=useState({...animal});
   const nomePasto=id2=>pastos.find(p=>p.id===id2)?.nome||'—';
   const mover=()=>{if(!dest)return;setMovs(m=>[{id:Date.now(),ident:animal.ident,de:nomePasto(animal.pastoId),para:nomePasto(+dest),data:TODAY,obs:obsM},...m]);setAnimais(a=>a.map(x=>x.id===animal.id?{...x,pastoId:+dest}:x));setMoveM(false);setDest('');setObsM('');onBack();};
   const deleteAnimal=()=>{setAnimais(a=>a.filter(x=>x.id!==animal.id));onBack();};
+  const salvarEditAnimal=()=>{if(!ef.ident?.trim())return;setAnimais(a=>a.map(x=>x.id===animal.id?{...ef,peso:+ef.peso||0,pastoId:ef.pastoId?+ef.pastoId:null,maeId:ef.maeId?+ef.maeId:null}:x));setEditM(false);onBack();};
+  const vacas=animais.filter(a=>a.status==='ativo'&&(a.cat==='Vaca'||a.cat==='Novilha')&&a.id!==animal.id);
   const corTopo=animal.sexo==='M'?`linear-gradient(135deg,${T.blueMid},${T.bLight})`:`linear-gradient(135deg,${T.pinkDark},${T.pink})`;
   return <DetailPage onBack={onBack} title={animal.ident} icon={animal.cat==='Bezerro'?'🐮':animal.sexo==='M'?'🐂':'🐄'} color={corTopo}>
     <Section title="Dados do Animal">
@@ -519,6 +542,7 @@ function AnimalDetailPage({animal,onBack,animais,pastos,movs,manejos,setAnimais,
       {manejoAnimal.map(m=>{const ti=TM.find(t=>t.v===m.tipoManejo)||{icon:'💉',c:T.gray};return<Card key={m.id} ch={<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{fontWeight:700,color:T.text}}>{ti.icon} {m.nomeManejo}</div><div style={{fontSize:12,color:T.gray}}>📅 {fmtD(m.data)}{m.dose?` · ${m.dose}`:''}</div></div><Badge l={ti.icon} c={ti.c} bg={ti.c+'18'}/></div>{m.obs&&<div style={{fontSize:11,color:T.gray,marginTop:4}}>📝 {m.obs}</div>}</>} style={{marginBottom:8}}/>;
       })}
     </Section>
+    <Btn l="✏️ Editar Animal" color={T.blue} onClick={()=>{setEf({...animal,peso:animal.peso||'',pastoId:animal.pastoId?String(animal.pastoId):'',maeId:animal.maeId?String(animal.maeId):''});setEditM(true);}} style={{marginBottom:10}}/>
     <Btn l="🌿 Mover de Pasto" color={T.green} onClick={()=>setMoveM(true)} style={{marginBottom:10}}/>
     <DeleteBtn label={animal.ident} onConfirm={deleteAnimal}/>
     <div style={{height:20}}/>
@@ -527,6 +551,17 @@ function AnimalDetailPage({animal,onBack,animais,pastos,movs,manejos,setAnimais,
       <Sel label="Destino" value={dest} onChange={setDest} opts={[{v:'',l:'Selecionar pasto...'},...pastos.filter(p=>p.id!==animal.pastoId).map(p=>({v:String(p.id),l:`${p.nome} · ${PS[p.status]?.l}`}))]}/>
       <Inp label="Observação" value={obsM} onChange={setObsM} placeholder="Motivo..."/>
       <Btn l="✅ Confirmar" onClick={mover} dis={!dest}/>
+    </Modal>
+    <Modal open={editM} onClose={()=>setEditM(false)} title="✏️ Editar Animal">
+      <Sel label="Categoria" value={ef.cat} onChange={v=>setEf(e=>({...e,cat:v}))} opts={['Boi','Vaca','Novilha','Bezerro','Touro'].map(v=>({v,l:v}))}/>
+      <div style={{marginBottom:12}}><label style={{display:'block',fontSize:11,fontWeight:700,color:T.gray,marginBottom:7,textTransform:'uppercase'}}>Sexo</label><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>{[['M','♂ Macho',T.blueMid,T.bluePale],['F','♀ Fêmea',T.pinkDark,T.pinkPale]].map(([v,l,c,bg])=><button key={v} onClick={()=>setEf(e=>({...e,sexo:v}))} style={{border:`2.5px solid ${ef.sexo===v?c:T.border}`,borderRadius:11,padding:'11px 0',fontWeight:700,fontSize:13,cursor:'pointer',background:ef.sexo===v?bg:T.card,color:ef.sexo===v?c:T.gray}}>{l}</button>)}</div></div>
+      <Inp label="Identificador *" value={ef.ident} onChange={v=>setEf(e=>({...e,ident:v}))}/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Inp label="Raça" value={ef.raca} onChange={v=>setEf(e=>({...e,raca:v}))}/><Inp label="Lote" value={ef.lote} onChange={v=>setEf(e=>({...e,lote:v}))}/></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Inp label="Peso (kg)" value={ef.peso} onChange={v=>setEf(e=>({...e,peso:v}))} type="number"/><Inp label="Nascimento" value={ef.dataNasc} onChange={v=>setEf(e=>({...e,dataNasc:v}))} type="date"/></div>
+      <Sel label="Pasto" value={ef.pastoId} onChange={v=>setEf(e=>({...e,pastoId:v}))} opts={[{v:'',l:'Sem pasto'},...pastos.map(p=>({v:String(p.id),l:p.nome}))]}/>
+      <Sel label="Mãe" value={ef.maeId} onChange={v=>setEf(e=>({...e,maeId:v}))} opts={[{v:'',l:'Nenhuma'},...vacas.map(v=>({v:String(v.id),l:`${v.ident}${v.raca?' · '+v.raca:''}`}))]}/>
+      <Inp label="Observações" value={ef.obs} onChange={v=>setEf(e=>({...e,obs:v}))} placeholder="Opcional..."/>
+      <Btn l="💾 Salvar Alterações" onClick={salvarEditAnimal} dis={!ef.ident?.trim()}/>
     </Modal>
   </DetailPage>;
 }
@@ -614,12 +649,24 @@ function Financeiro({fin,setFin}){
   const lista=(aba==='tudo'?tM:tM.filter(t=>t.tipo===(aba==='rec'?'receita':'despesa'))).sort((a,b)=>b.data.localeCompare(a.data));
   if(detail){
     const isR=detail.tipo==='receita',cor=isR?T.green:T.red;
+    const [editFinM,setEditFinM]=useState(false);
+    const [efin,setEfin]=useState({...detail});
+    const salvarEditFin=()=>{if(!efin.valor)return;setFin(f=>f.map(x=>x.id===detail.id?{...efin,valor:+efin.valor}:x));setEditFinM(false);setDetail(null);};
     return <DetailPage onBack={()=>setDetail(null)} title={isR?'Receita':'Despesa'} icon={isR?'▲':'▼'} color={`linear-gradient(135deg,${isR?T.gDark:'#7B1D1D'},${isR?T.green:T.red})`}>
       <Section title="Detalhes da Transação">
         <Card ch={<><div style={{textAlign:'center',padding:'16px 0',marginBottom:12}}><div style={{fontSize:40,fontWeight:800,color:cor}}>{isR?'+':'-'}{fmtR(detail.valor)}</div><div style={{fontSize:13,color:T.gray,marginTop:4}}>{fmtD(detail.data)}</div></div><InfoRow label="Categoria" value={detail.cat}/><InfoRow label="Tipo" value={isR?'Receita':'Despesa'} color={cor}/><InfoRow label="Descrição" value={detail.desc||'—'}/><InfoRow label="Data" value={fmtD(detail.data)}/></>}/>
       </Section>
+      <Btn l="✏️ Editar Lançamento" color={T.blue} onClick={()=>{setEfin({...detail});setEditFinM(true);}} style={{marginBottom:10}}/>
       <DeleteBtn label="esta transação" onConfirm={()=>del(detail.id)}/>
       <div style={{height:20}}/>
+      <Modal open={editFinM} onClose={()=>setEditFinM(false)} title="✏️ Editar Lançamento">
+        <div style={{display:'flex',gap:7,marginBottom:13}}>{[['receita','▲ Entrada'],['despesa','▼ Saída']].map(([tp,lbl])=><button key={tp} onClick={()=>setEfin(e=>({...e,tipo:tp,cat:tp==='receita'?catR[0]:catD[0]}))} style={{flex:1,border:'none',borderRadius:11,padding:13,fontWeight:700,fontSize:14,cursor:'pointer',background:efin.tipo===tp?(tp==='receita'?T.green:T.red):T.bg,color:efin.tipo===tp?'#FFF':T.gray}}>{lbl}</button>)}</div>
+        <Inp label="Valor (R$) *" value={efin.valor} onChange={v=>setEfin(e=>({...e,valor:v}))} type="number"/>
+        <Sel label="Categoria" value={efin.cat} onChange={v=>setEfin(e=>({...e,cat:v}))} opts={(efin.tipo==='receita'?catR:catD).map(v=>({v,l:v}))}/>
+        <Inp label="Descrição" value={efin.desc} onChange={v=>setEfin(e=>({...e,desc:v}))} placeholder="Opcional..."/>
+        <Inp label="Data" value={efin.data} onChange={v=>setEfin(e=>({...e,data:v}))} type="date"/>
+        <Btn l="💾 Salvar Alterações" onClick={salvarEditFin} dis={!efin.valor}/>
+      </Modal>
     </DetailPage>;
   }
   return <div style={{paddingBottom:100}}>
@@ -834,6 +881,110 @@ function Settings({dark,setDark,onReset,onClose,movs,manejos,animais,fin,pastos,
   </div>;
 }
 
+// ═══ FERRAMENTAS ══════════════════════════════════════════════════
+function Ferramentas(){
+  const T=useT(),[aba,setAba]=useState('uab');
+
+  // ── Calculadora UA/Balança ────────────────────────────────────
+  const [nBois,setNBois]=useState('');const [pMedio,setPMedio]=useState('');
+  const ua=nBois&&pMedio?(+nBois*(+pMedio/450)).toFixed(2):null;
+
+  // ── Calculadora de Lotação ────────────────────────────────────
+  const [haLot,setHaLot]=useState('');const [taxaLot,setTaxaLot]=useState('1.0');
+  const lotMax=haLot&&taxaLot?(+haLot * +taxaLot).toFixed(1):null;
+
+  // ── Calculadora de Sal ────────────────────────────────────────
+  const [nAnimSal,setNAnimSal]=useState('');const [txSal,setTxSal]=useState('225');const [diasSalC,setDiasSalC]=useState('30');
+  const kgSal=nAnimSal&&txSal&&diasSalC?((+nAnimSal * +txSal * +diasSalC)/1000).toFixed(1):null;
+  const sacosNec=kgSal?(Math.ceil(+kgSal/30)):null;
+
+  // ── Calculadora GMD (Ganho Médio Diário) ──────────────────────
+  const [pIni,setPIni]=useState('');const [pFim,setPFim]=useState('');const [diasGmd,setDiasGmd]=useState('');
+  const gmd=pIni&&pFim&&diasGmd&&+diasGmd>0?((+pFim - +pIni) / +diasGmd).toFixed(3):null;
+
+  const abas=[['uab','⚖️ UA'],['lot','🌿 Lotação'],['sal','🧂 Sal'],['gmd','📈 GMD']];
+
+  return <div style={{paddingBottom:100}}>
+    <PgH sub="Utilidades" title="Ferramentas 🧮"/>
+    <div style={{display:'flex',background:T.gDark,overflowX:'auto',scrollbarWidth:'none'}}>
+      {abas.map(([id,lbl])=><button key={id} onClick={()=>setAba(id)} style={{flexShrink:0,flex:1,border:'none',background:'none',color:aba===id?'#FFF':'rgba(255,255,255,0.45)',fontWeight:700,fontSize:13,padding:'11px 12px',cursor:'pointer',borderBottom:aba===id?'3px solid #FFF':'3px solid transparent',whiteSpace:'nowrap'}}>{lbl}</button>)}
+    </div>
+    <div style={{padding:'16px 14px 0'}}>
+
+      {aba==='uab'&&<>
+        <div style={{background:T.gPale,borderRadius:14,padding:14,marginBottom:14,border:`1.5px solid ${T.gLight}30`}}>
+          <div style={{fontWeight:800,color:T.gDark,fontSize:13,marginBottom:4}}>⚖️ Cálculo de Unidade Animal (UA)</div>
+          <div style={{fontSize:12,color:T.gray,lineHeight:1.5}}>1 UA = animal de <b>450 kg</b>. Use para dimensionar a pressão de pastejo.</div>
+        </div>
+        <Inp label="Número de animais" value={nBois} onChange={setNBois} type="number" placeholder="Ex: 40"/>
+        <Inp label="Peso médio (kg)" value={pMedio} onChange={setPMedio} type="number" placeholder="Ex: 380"/>
+        {ua&&<div style={{background:T.green,borderRadius:14,padding:18,textAlign:'center',marginTop:4}}>
+          <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,fontWeight:700}}>TOTAL EM UA</div>
+          <div style={{color:'#FFF',fontSize:44,fontWeight:800,lineHeight:1}}>{ua}</div>
+          <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,marginTop:4}}>{nBois} animais × {pMedio}kg ÷ 450</div>
+        </div>}
+      </>}
+
+      {aba==='lot'&&<>
+        <div style={{background:T.gPale,borderRadius:14,padding:14,marginBottom:14,border:`1.5px solid ${T.gLight}30`}}>
+          <div style={{fontWeight:800,color:T.gDark,fontSize:13,marginBottom:4}}>🌿 Capacidade de Lotação</div>
+          <div style={{fontSize:12,color:T.gray,lineHeight:1.5}}>Calcula quantas UA o pasto suporta com base na área e na taxa de lotação desejada.</div>
+        </div>
+        <Inp label="Área do pasto (ha)" value={haLot} onChange={setHaLot} type="number" placeholder="Ex: 50"/>
+        <div style={{marginBottom:14}}>
+          <label style={{display:'block',fontSize:11,fontWeight:700,color:T.gray,marginBottom:8,textTransform:'uppercase'}}>Taxa de lotação (UA/ha)</label>
+          <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+            {[['0.5','Extensivo 0.5'],['1.0','Médio 1.0'],['1.5','Intensivo 1.5'],['2.5','Super-int. 2.5']].map(([v,l])=><button key={v} onClick={()=>setTaxaLot(v)} style={{border:`2px solid ${taxaLot===v?T.green:T.border}`,borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:600,cursor:'pointer',background:taxaLot===v?T.gPale:T.card,color:taxaLot===v?T.green:T.gray}}>{l}</button>)}
+          </div>
+          <Inp label="" value={taxaLot} onChange={setTaxaLot} type="number" placeholder="Ou digite manualmente"/>
+        </div>
+        {lotMax&&<div style={{background:T.green,borderRadius:14,padding:18,textAlign:'center',marginTop:4}}>
+          <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,fontWeight:700}}>CAPACIDADE MÁXIMA</div>
+          <div style={{color:'#FFF',fontSize:44,fontWeight:800,lineHeight:1}}>{lotMax} <span style={{fontSize:18}}>UA</span></div>
+          <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,marginTop:4}}>{haLot} ha × {taxaLot} UA/ha</div>
+        </div>}
+      </>}
+
+      {aba==='sal'&&<>
+        <div style={{background:'#FFF3E0',borderRadius:14,padding:14,marginBottom:14,border:'1.5px solid #F4A26130'}}>
+          <div style={{fontWeight:800,color:'#E65100',fontSize:13,marginBottom:4}}>🧂 Necessidade de Sal Mineral</div>
+          <div style={{fontSize:12,color:T.gray,lineHeight:1.5}}>Calcula quantos kg e sacos (30 kg) você precisa comprar para um período.</div>
+        </div>
+        <Inp label="Número de animais" value={nAnimSal} onChange={setNAnimSal} type="number" placeholder="Ex: 60"/>
+        <Inp label="Taxa de sal (g/animal/dia)" value={txSal} onChange={setTxSal} type="number" placeholder="225"/>
+        <Inp label="Período (dias)" value={diasSalC} onChange={setDiasSalC} type="number" placeholder="30"/>
+        {kgSal&&<div style={{background:T.orange,borderRadius:14,padding:18,textAlign:'center',marginTop:4}}>
+          <div style={{color:'rgba(255,255,255,0.8)',fontSize:12,fontWeight:700}}>VOCÊ VAI PRECISAR DE</div>
+          <div style={{color:'#FFF',fontSize:44,fontWeight:800,lineHeight:1}}>{kgSal} <span style={{fontSize:18}}>kg</span></div>
+          <div style={{color:'rgba(255,255,255,0.8)',fontSize:15,marginTop:6,fontWeight:700}}>{sacosNec} saco{sacosNec!==1?'s':''} de 30 kg</div>
+          <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,marginTop:4}}>{nAnimSal} animais × {txSal}g × {diasSalC} dias</div>
+        </div>}
+      </>}
+
+      {aba==='gmd'&&<>
+        <div style={{background:T.bluePale,borderRadius:14,padding:14,marginBottom:14,border:`1.5px solid ${T.blueMid}30`}}>
+          <div style={{fontWeight:800,color:T.blue,fontSize:13,marginBottom:4}}>📈 Ganho Médio Diário (GMD)</div>
+          <div style={{fontSize:12,color:T.gray,lineHeight:1.5}}>Mede o desempenho de crescimento do animal ou lote. Meta Nelore: <b>0,700 – 0,900 kg/dia</b>.</div>
+        </div>
+        <Inp label="Peso inicial (kg)" value={pIni} onChange={setPIni} type="number" placeholder="Ex: 280"/>
+        <Inp label="Peso final (kg)" value={pFim} onChange={setPFim} type="number" placeholder="Ex: 350"/>
+        <Inp label="Intervalo (dias)" value={diasGmd} onChange={setDiasGmd} type="number" placeholder="Ex: 90"/>
+        {gmd&&<>
+          <div style={{background:+gmd>=0.7?T.green:+gmd>=0.4?T.orange:T.red,borderRadius:14,padding:18,textAlign:'center',marginTop:4}}>
+            <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,fontWeight:700}}>GANHO MÉDIO DIÁRIO</div>
+            <div style={{color:'#FFF',fontSize:44,fontWeight:800,lineHeight:1}}>{gmd} <span style={{fontSize:18}}>kg/dia</span></div>
+            <div style={{color:'rgba(255,255,255,0.8)',fontSize:13,marginTop:6,fontWeight:700}}>
+              {+gmd>=0.7?'✅ Excelente desempenho':+gmd>=0.4?'⚠️ Desempenho médio':'🚨 Abaixo do esperado'}
+            </div>
+            <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,marginTop:4}}>Ganho total: {(+pFim - +pIni).toFixed(1)} kg em {diasGmd} dias</div>
+          </div>
+        </>}
+      </>}
+
+    </div>
+  </div>;
+}
+
 // ═══ APP ══════════════════════════════════════════════════════════
 function App(){
   const [dark,setDark]=useState(false);
@@ -886,7 +1037,7 @@ function App(){
     })();
   },[]);
   const bezNovos=animais.filter(a=>a.status==='ativo'&&a.cat==='Bezerro'&&a.dataNasc&&calcIdade(a.dataNasc)?.dias<7).length;
-  const nav=[{id:'home',icon:'🏠',label:'Home'},{id:'pastos',icon:'🌿',label:'Pastos'},{id:'animais',icon:'🐄',label:'Animais'},{id:'financeiro',icon:'💰',label:'Caixa'},{id:'historico',icon:'📋',label:'Manejo'}];
+  const nav=[{id:'home',icon:'🏠',label:'Home'},{id:'pastos',icon:'🌿',label:'Pastos'},{id:'animais',icon:'🐄',label:'Animais'},{id:'financeiro',icon:'💰',label:'Caixa'},{id:'historico',icon:'📋',label:'Manejo'},{id:'ferramentas',icon:'🧮',label:'Tools'}];
   if(loading)return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:`linear-gradient(135deg,#1B4332,#2D6A4F)`,gap:16}}>
     <div style={{fontSize:48}}>🌿</div>
     <div style={{color:'#FFF',fontSize:20,fontWeight:800}}>Fazendinha</div>
@@ -896,11 +1047,12 @@ function App(){
   </div>;
   return <TC.Provider value={T}>
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",background:T.bg,minHeight:'100vh',maxWidth:500,margin:'0 auto',position:'relative',overflowX:'hidden'}}>
-      {page==='home'       &&<Dashboard pastos={pastos} animais={animais} fin={fin} sal={sal} onAction={a=>a==='settings'?setPage('settings'):setGA(a)}/>}
+      {page==='home'       &&<Dashboard pastos={pastos} animais={animais} fin={fin} sal={sal} onAction={a=>a==='settings'?setPage('settings'):a==='ferramentas'?setPage('ferramentas'):setGA(a)}/>}
       {page==='pastos'     &&<Pastos pastos={pastos} setPastos={setPastos} animais={animais} sal={sal} setSal={setSal} manejos={manejos} movs={movs}/>}
       {page==='animais'    &&<Animais animais={animais} setAnimais={setAnimais} pastos={pastos} movs={movs} setMovs={setMovs} manejos={manejos}/>}
       {page==='financeiro' &&<Financeiro fin={fin} setFin={setFin}/>}
       {page==='historico'  &&<HistoricoManejo movs={movs} setMovs={setMovs} manejos={manejos} setManejos={setManejos} animais={animais} fin={fin} setFin={setFin} pastos={pastos}/>}
+      {page==='ferramentas'&&<Ferramentas/>}
       {page==='settings'   &&<Settings dark={dark} setDark={v=>{setDark(v);saveCfg({dark:v});}} onReset={handleReset} onClose={()=>setPage('home')} movs={movs} manejos={manejos} animais={animais} fin={fin} pastos={pastos} sal={sal}/>}
       {globalAction&&<GlobalModals action={globalAction} onClose={()=>setGA(null)} pastos={pastos} animais={animais} setAnimais={setAnimais} setSal={setSal} setMovs={setMovs}/>}
       {page!=='settings'&&<div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:500,background:T.card,borderTop:`1px solid ${T.border}`,display:'flex',zIndex:300,boxShadow:`0 -4px 20px ${T.shadow}`}}>
