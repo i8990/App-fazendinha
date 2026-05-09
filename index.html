@@ -15,6 +15,21 @@
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     .fi{animation:fadeIn 0.15s ease}
   </style>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+const SUPABASE_URL = 'https://orrskyytignlneoftpft.supabase.co'
+
+const SUPABASE_ANON_KEY = 'sb_publishable_E11Kg5KjCQR6S_mo0gWt5g_9AGA2JWH'
+
+const supabaseClient = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+)
+
+console.log('Supabase conectado')
+</script>
 </head>
 <body><div id="root"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -35,11 +50,37 @@ const PE={bom:{l:'Bom',c:'#52B788'},medio:{l:'Médio',c:'#E9C46A'},ruim:{l:'Ruim
 const TM=[{v:'ivermectina',l:'Ivermectina',icon:'💉',c:'#7B61FF'},{v:'fio_do_lombo',l:'Fio do Lombo',icon:'🩺',c:'#E63946'},{v:'antibiotico',l:'Antibiótico',icon:'💊',c:'#F4A261'},{v:'vacina',l:'Vacina',icon:'🩹',c:'#52B788'},{v:'vermifugo',l:'Vermífugo',icon:'🔬',c:'#0077B6'},{v:'outro',l:'Outro',icon:'✚',c:'#6B7280'}];
 const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// ═══ STORAGE ═════════════════════════════════════════════════════
+// ═══ STORAGE (localStorage + Supabase) ═══════════════════════════
 const PFX='ag9_';
+const DB_TABLE='ag_store';
+
+// Leitura síncrona do cache local
 const dbGet=(k,fb)=>{try{const v=localStorage.getItem(PFX+k);return v?JSON.parse(v):fb}catch{return fb}};
-const dbSet=(k,v)=>{try{localStorage.setItem(PFX+k,JSON.stringify(v));localStorage.setItem(PFX+k+'_bak',JSON.stringify(v));}catch{}};
-const dbReset=()=>['pastos','animais','fin','movs','sal','manejos','cfg'].forEach(k=>{localStorage.removeItem(PFX+k);localStorage.removeItem(PFX+k+'_bak');});
+
+// Escrita: salva localmente E envia para o Supabase (fire-and-forget)
+const dbSet=(k,v)=>{
+  try{localStorage.setItem(PFX+k,JSON.stringify(v));localStorage.setItem(PFX+k+'_bak',JSON.stringify(v));}catch{}
+  supabaseClient.from(DB_TABLE).upsert({key:k,value:v},{onConflict:'key'})
+    .then(({error})=>{if(error)console.warn('Supabase write ['+k+']:', error.message)});
+};
+
+// Leitura assíncrona do Supabase (usada na inicialização do app)
+const dbLoad=async(k,fb)=>{
+  try{
+    const{data,error}=await supabaseClient.from(DB_TABLE).select('value').eq('key',k).maybeSingle();
+    if(!error&&data?.value){localStorage.setItem(PFX+k,JSON.stringify(data.value));return data.value;}
+  }catch(e){console.warn('Supabase read ['+k+']:', e.message);}
+  return dbGet(k,fb);
+};
+
+// Reset: apaga do localStorage e do Supabase
+const dbReset=()=>{
+  const KEYS=['pastos','animais','fin','movs','sal','manejos','cfg'];
+  KEYS.forEach(k=>{localStorage.removeItem(PFX+k);localStorage.removeItem(PFX+k+'_bak');});
+  supabaseClient.from(DB_TABLE).delete().in('key',KEYS)
+    .then(({error})=>{if(error)console.warn('Supabase reset:', error.message)});
+};
+
 const dbExport=(data)=>{const b=new Blob([JSON.stringify({v:'9',ts:new Date().toISOString(),data},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`agrogestao-v9-${TODAY}.json`;a.click();};
 
 // ═══ UTILS ════════════════════════════════════════════════════════
@@ -759,6 +800,13 @@ function App(){
   const mk=(k,s)=>fn=>s(prev=>{const n=typeof fn==='function'?fn(prev):fn;dbSet(k,n);return n;});
   const setPastos=mk('pastos',setP),setAnimais=mk('animais',setA),setFin=mk('fin',setF),setMovs=mk('movs',setMv),setSal=mk('sal',setSl),setManejos=mk('manejos',setMj);
   const handleReset=()=>{setP(D_PASTOS);setA(D_ANIMAIS);setF(D_FIN);setMv(D_MOVS);setSl(D_SAL);setMj(D_MANEJOS);dbSet('pastos',D_PASTOS);dbSet('animais',D_ANIMAIS);dbSet('fin',D_FIN);dbSet('movs',D_MOVS);dbSet('sal',D_SAL);dbSet('manejos',D_MANEJOS);setPage('home');};
+  useEffect(()=>{
+    (async()=>{
+      const entries=[['pastos',setP,D_PASTOS],['animais',setA,D_ANIMAIS],['fin',setF,D_FIN],['movs',setMv,D_MOVS],['sal',setSl,D_SAL],['manejos',setMj,D_MANEJOS]];
+      for(const[k,setter,def]of entries){const v=await dbLoad(k,def);setter(v&&(Array.isArray(v)?v.length>0:true)?v:def);}
+      console.log('Dados carregados do Supabase ✓');
+    })();
+  },[]);
   const bezNovos=animais.filter(a=>a.status==='ativo'&&a.cat==='Bezerro'&&a.dataNasc&&calcIdade(a.dataNasc)?.dias<7).length;
   const nav=[{id:'home',icon:'🏠',label:'Home'},{id:'pastos',icon:'🌿',label:'Pastos'},{id:'animais',icon:'🐄',label:'Animais'},{id:'financeiro',icon:'💰',label:'Caixa'},{id:'historico',icon:'📋',label:'Manejo'}];
   return <TC.Provider value={T}>
