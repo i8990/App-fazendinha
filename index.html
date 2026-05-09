@@ -363,7 +363,6 @@ function Dashboard({pastos,animais,fin,sal,onAction}){
         <div style={{textAlign:'left'}}><div style={{fontSize:14,fontWeight:800,color:T.purple}}>FERRAMENTAS</div><div style={{fontSize:11,color:T.gray}}>Calculadoras de UA, lotação, sal e GMD</div></div>
         <span style={{marginLeft:'auto',color:T.gray,fontSize:18}}>›</span>
       </button>
-      </div>
       {alertas.length>0&&<div style={{background:T.card,borderRadius:14,padding:14,marginBottom:12,border:`1.5px solid ${T.orange}30`,boxShadow:`0 2px 8px ${T.shadow}`}}><div style={{fontWeight:800,color:T.orange,fontSize:13,marginBottom:8}}>⚠️ Alertas da fazenda</div>{alertas.map((a,i)=><div key={i} style={{fontSize:13,color:T.text,padding:'5px 0',borderBottom:i<alertas.length-1?`1px solid ${T.border}`:'none'}}>{a.icon} {a.msg}</div>)}</div>}
       {bezNovos.length>0&&<Card ch={<><div style={{fontWeight:800,color:T.pinkDark,marginBottom:7}}>🐮 Nascimentos recentes</div>{bezNovos.map(b=>{const id=calcIdade(b.dataNasc);return<div key={b.id} style={{fontSize:13,marginBottom:3}}>• <b>{b.ident}</b> — {id?.label} · {b.sexo==='M'?'♂':'♀'}</div>;})}</>} style={{border:`2px solid ${T.pink}`,background:T.pinkPale}}/>}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
@@ -638,6 +637,8 @@ function Animais({animais,setAnimais,pastos,movs,setMovs,manejos}){
 // ═══ FINANCEIRO ═══════════════════════════════════════════════════
 function Financeiro({fin,setFin}){
   const T=useT(),[aba,setAba]=useState('tudo'),[modal,setM]=useState(false),[detail,setDetail]=useState(null);
+  const [editFinM,setEditFinM]=useState(false);
+  const [efin,setEfin]=useState({});
   const eF={tipo:'despesa',valor:'',cat:'Alimentação',desc:'',data:TODAY};
   const [form,setForm]=useState(eF);
   const hoje=new Date(),mes=`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
@@ -649,8 +650,6 @@ function Financeiro({fin,setFin}){
   const lista=(aba==='tudo'?tM:tM.filter(t=>t.tipo===(aba==='rec'?'receita':'despesa'))).sort((a,b)=>b.data.localeCompare(a.data));
   if(detail){
     const isR=detail.tipo==='receita',cor=isR?T.green:T.red;
-    const [editFinM,setEditFinM]=useState(false);
-    const [efin,setEfin]=useState({...detail});
     const salvarEditFin=()=>{if(!efin.valor)return;setFin(f=>f.map(x=>x.id===detail.id?{...efin,valor:+efin.valor}:x));setEditFinM(false);setDetail(null);};
     return <DetailPage onBack={()=>setDetail(null)} title={isR?'Receita':'Despesa'} icon={isR?'▲':'▼'} color={`linear-gradient(135deg,${isR?T.gDark:'#7B1D1D'},${isR?T.green:T.red})`}>
       <Section title="Detalhes da Transação">
