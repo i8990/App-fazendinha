@@ -50,17 +50,128 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-<script>
-const SUPABASE_URL = 'https://orrskyytignlneoftpft.supabase.co'
+<style>
+  /* ── Offline banner ── */
+  #offline-banner{
+    display:none;position:fixed;top:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:500px;
+    background:#FF9F0A;color:#fff;
+    font-size:12px;font-weight:600;letter-spacing:0.2px;
+    text-align:center;padding:7px 12px;
+    z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.18);
+  }
+  #sync-toast{
+    display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+    background:#1A7A4A;color:#fff;
+    border-radius:20px;padding:8px 18px;
+    font-size:12px;font-weight:600;
+    z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.2);
+    white-space:nowrap;
+  }
+</style>
 
+<script>
+// ══════════════════════════════════════════════════════════════════
+// SERVICE WORKER — cacheia o app inteiro na primeira visita online
+// ══════════════════════════════════════════════════════════════════
+const SW_CODE = `
+const CACHE = 'fazendinha-v1';
+const ASSETS = [
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+  'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap',
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(c => {
+      return Promise.allSettled(ASSETS.map(url => c.add(url).catch(()=>{})));
+    }).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  // Não intercepta chamadas ao Supabase (precisa ir à rede ou falhar graciosamente)
+  if (e.request.url.includes('supabase.co')) return;
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      return fetch(e.request).then(res => {
+        if (res && res.status === 200 && res.type !== 'opaque') {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => cached);
+    })
+  );
+});
+`;
+
+if ('serviceWorker' in navigator) {
+  const blob = new Blob([SW_CODE], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl, {scope:'/'})
+    .then(r => console.log('🔧 Service Worker registrado'))
+    .catch(e => console.warn('SW não registrado:', e.message));
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SUPABASE CLIENT
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://orrskyytignlneoftpft.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_E11Kg5KjCQR6S_mo0gWt5g_9AGA2JWH'
 
-const supabaseClient = supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY
-)
+let supabaseClient;
+try {
+  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  console.log('☁️ Supabase client criado');
+} catch(e) {
+  console.warn('Supabase indisponível:', e.message);
+}
 
-console.log('Supabase conectado')
+// ══════════════════════════════════════════════════════════════════
+// ONLINE / OFFLINE UI
+// ══════════════════════════════════════════════════════════════════
+function showBanner(online) {
+  const b = document.getElementById('offline-banner');
+  if (!b) return;
+  b.style.display = online ? 'none' : 'block';
+}
+function showSyncToast(msg) {
+  const t = document.getElementById('sync-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+window.addEventListener('online',  () => { showBanner(true);  syncPending(); });
+window.addEventListener('offline', () => { showBanner(false); });
+window.addEventListener('DOMContentLoaded', () => {
+  // Cria o banner se ainda não existe
+  if (!document.getElementById('offline-banner')) {
+    const b = document.createElement('div');
+    b.id = 'offline-banner';
+    b.textContent = '📵 Sem internet — dados salvos localmente. Sincronizará ao reconectar.';
+    document.body.prepend(b);
+    const t = document.createElement('div');
+    t.id = 'sync-toast';
+    document.body.appendChild(t);
+  }
+  showBanner(navigator.onLine);
+});
 </script>
 </head>
 <body><div id="root"></div>
@@ -118,65 +229,122 @@ const PE={bom:{l:'Bom',c:'#52B788'},medio:{l:'Médio',c:'#E9C46A'},ruim:{l:'Ruim
 const TM=[{v:'ivermectina',l:'Ivermectina',icon:'💉',c:'#7B61FF'},{v:'fio_do_lombo',l:'Fio do Lombo',icon:'🩺',c:'#E63946'},{v:'antibiotico',l:'Antibiótico',icon:'💊',c:'#F4A261'},{v:'vacina',l:'Vacina',icon:'🩹',c:'#52B788'},{v:'vermifugo',l:'Vermífugo',icon:'🔬',c:'#0077B6'},{v:'outro',l:'Outro',icon:'✚',c:'#6B7280'}];
 const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// ═══ STORAGE — Supabase/app_state (fonte única de verdade) ════════
+// ═══ STORAGE — Offline-first: localStorage + Supabase sync ════════
 //
-//  Tabela usada: app_state
-//  Schema esperado:
-//    key         text PRIMARY KEY
-//    value       jsonb NOT NULL
-//    updated_at  timestamptz DEFAULT now()
+//  Estratégia:
+//    • Escrita  → localStorage imediato + Supabase se online (fire-and-forget)
+//    • Leitura  → Supabase se online (atualiza cache local), senão localStorage
+//    • Offline  → fila de pendentes em localStorage['faz_pending']
+//    • Reconexão→ syncPending() drena a fila automaticamente
 //
-//  RLS mínimo necessário (rodar no SQL Editor do Supabase):
-//    ALTER TABLE app_state ENABLE ROW LEVEL SECURITY;
-//    CREATE POLICY "anon_all" ON app_state FOR ALL USING (true) WITH CHECK (true);
+//  Tabela Supabase:  app_state  (key TEXT PK, value JSONB, updated_at TIMESTAMPTZ)
 //
 const DB_TABLE = 'app_state';
+const LS = (k) => 'faz_' + k;          // prefixo localStorage
+const PENDING_KEY = 'faz__pending';     // chave da fila offline
+
+// ── Helpers localStorage ─────────────────────────────────────────
+const lsGet = (k) => { try { const v=localStorage.getItem(LS(k)); return v!=null?JSON.parse(v):null; } catch{ return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(LS(k), JSON.stringify(v)); } catch(e) { console.warn('localStorage cheio?', e.message); } };
+const lsDel = (k) => { try { localStorage.removeItem(LS(k)); } catch{} };
+
+// ── Fila de pendentes ────────────────────────────────────────────
+const getPending = () => { try { return JSON.parse(localStorage.getItem(PENDING_KEY)||'[]'); } catch{ return []; } };
+const addPending = (k) => {
+  const p = getPending();
+  if (!p.includes(k)) { p.push(k); localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
+};
+const clearPending = () => localStorage.removeItem(PENDING_KEY);
+
+// ── Sync ao reconectar ───────────────────────────────────────────
+async function syncPending() {
+  if (!navigator.onLine || !supabaseClient) return;
+  const pending = getPending();
+  if (!pending.length) return;
+  console.log(`📶 Online! Sincronizando ${pending.length} chave(s)...`);
+  showSyncToast('📶 Sincronizando dados...');
+  let ok = 0;
+  for (const k of pending) {
+    const v = lsGet(k);
+    if (v === null) { ok++; continue; }
+    try {
+      const { error } = await supabaseClient.from(DB_TABLE)
+        .upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (!error) ok++;
+      else console.warn(`⚠️ Sync [${k}]:`, error.message);
+    } catch(e) { console.warn(`⚠️ Sync [${k}] exceção:`, e.message); }
+  }
+  if (ok === pending.length) {
+    clearPending();
+    showSyncToast(`✅ Sincronizado! (${ok} itens)`);
+    console.log('✅ Sync completo!');
+  } else {
+    showSyncToast(`⚠️ Sync parcial (${ok}/${pending.length})`);
+  }
+}
 
 // ── Primitiva de escrita ─────────────────────────────────────────
-// fire-and-forget: não bloqueia a UI, mas loga erros detalhados
 const dbSet = (k, v) => {
-  supabaseClient
-    .from(DB_TABLE)
-    .upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-    .then(({ error }) => {
-      if (error) {
-        console.error(`❌ dbSet [${k}] falhou:`, error.code, error.message, error.hint || '');
-      } else {
-        console.log(`💾 dbSet [${k}] OK`);
-      }
-    });
+  // 1. Salva localmente (instantâneo, sempre funciona)
+  lsSet(k, v);
+
+  // 2. Tenta Supabase se online
+  if (navigator.onLine && supabaseClient) {
+    supabaseClient
+      .from(DB_TABLE)
+      .upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      .then(({ error }) => {
+        if (error) {
+          console.warn(`⚠️ dbSet [${k}] Supabase falhou — dado salvo localmente:`, error.message);
+          addPending(k);
+        } else {
+          console.log(`☁️ dbSet [${k}] OK`);
+        }
+      });
+  } else {
+    // Offline: enfileira para sync posterior
+    addPending(k);
+    console.log(`💾 dbSet [${k}] salvo offline (pendente sync)`);
+  }
 };
 
 // ── Primitiva de leitura ─────────────────────────────────────────
 const dbLoad = async (k) => {
-  try {
-    const { data, error } = await supabaseClient
-      .from(DB_TABLE)
-      .select('value')
-      .eq('key', k)
-      .maybeSingle();
-    if (error) {
-      console.error(`❌ dbLoad [${k}] erro:`, error.code, error.message, error.hint || '');
-      return null;
+  // 1. Tenta Supabase se online (fonte mais atualizada)
+  if (navigator.onLine && supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient
+        .from(DB_TABLE).select('value').eq('key', k).maybeSingle();
+      if (!error && data != null) {
+        lsSet(k, data.value);   // atualiza cache local
+        return data.value;
+      }
+      if (error) console.warn(`⚠️ dbLoad [${k}] Supabase:`, error.message);
+    } catch(e) {
+      console.warn(`⚠️ dbLoad [${k}] offline fallback:`, e.message);
     }
-    return data != null ? data.value : null;
-  } catch (e) {
-    console.error(`❌ dbLoad [${k}] exceção:`, e.message);
-    return null;
   }
+  // 2. Fallback: localStorage (funciona offline)
+  const local = lsGet(k);
+  if (local !== null) console.log(`📱 dbLoad [${k}] do cache local`);
+  else console.warn(`⚠️ dbLoad [${k}] não encontrado localmente`);
+  return local;
 };
 
 // ── Reset completo ───────────────────────────────────────────────
 const dbReset = () => {
   const KEYS = ['pastos', 'animais', 'fin', 'movs', 'sal', 'manejos', 'cfg', 'adubacoes'];
-  supabaseClient
-    .from(DB_TABLE)
-    .delete()
-    .in('key', KEYS)
-    .then(({ error }) => {
-      if (error) console.error('❌ dbReset falhou:', error.message);
-      else console.log('🗑️ dbReset OK');
-    });
+  // Limpa localStorage
+  KEYS.forEach(k => lsDel(k));
+  clearPending();
+  // Limpa Supabase se online
+  if (navigator.onLine && supabaseClient) {
+    supabaseClient.from(DB_TABLE).delete().in('key', KEYS)
+      .then(({ error }) => {
+        if (error) console.error('❌ dbReset Supabase falhou:', error.message);
+        else console.log('🗑️ dbReset OK');
+      });
+  }
 };
 
 // ── API nomeada por entidade ─────────────────────────────────────
